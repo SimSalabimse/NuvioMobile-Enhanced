@@ -159,3 +159,123 @@ Skills to follow when that follow-up is written:
 - Swift Concurrency (`.agents/skills/swift-concurrency/SKILL.md`), for any iOS host change and for the PiP work in the sync. The app target is Swift language version 5.0. Do not assume the Xcode 26 defaults (`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, approachable concurrency). Do not mark types `@MainActor` unless the work is UI-bound. Frame conversion waits off the main actor. Layer and PiP teardown hop back to the main actor.
 
 The follow-up does not touch the playback lane, the heat gate, analysis, or the season overview.
+
+## Adversarial review
+
+Reviewed against a fetch of `luqmanfadlli/NuvioMobile-Enhanced` tags `1.0.0` (`6c2ad7937171965608d05005080b96ca19345379`) and `0.6.10-beta` (`03536e36f34daacac7fb27d7e12276cd7bf410d4`), compared with `81572208faeaf871239a1a3087f250d5cf3d630c`. No merge commit was created. Verdict: **ready after the listed fixes**. The content base, the untouched-directory claims, the 109-path count, and the version target are right. The merge commands are not executable as written, and a clean merge already violates two keep-decisions that protect playback.
+
+These measurements in section 1 are true: tag subjects and shas, no `v1.0.0` tag, `0.6.10-beta` is an ancestor of `1.0.0` and not an ancestor of `81572208`, `0.6.10-beta..1.0.0` is 145 commits and 241 files (+12007 / −1263), `git diff --name-only` from the base to `81572208` is 1174 paths, the intersection is 109, and there are no renames (`git diff --find-renames`). Upstream's diff touches none of `features/analysis`, `features/downloads`, `features/player/skip`, `SeasonOverview`, `PlaybackPriority`, `sync-worker`, `iosApp/iosApp/Diagnostics`, `scripts/build-ios-ipa.sh`, or `scripts/ci`. Dolby converter is 410 lines. Idle-gate numbers in the rules match `DownloadGateDecisionTest.idleHeatTable` and `NEXT_UP_DUTY_ON_MS` / `NEXT_UP_DUTY_OFF_MS` (30s/30s) on `81572208`.
+
+### Blocker — the written merge is not a commit, and a plain merge uses the wrong base
+
+`git merge-base 81572208 6c2ad793` is `313ca3d15c3a31d1d1b456fbbb09d6c31711b8b2` (`chore(store): publish 0.6.5-beta`, 2026-10-27), an ancestor of both sides and of `03536e36`. Histories are related. `git rev-list --count 81572208..6c2ad793` is **552**, not 4169. 4169 is `git rev-list --count 6c2ad793`, every commit reachable from the tag. `9d5d91c86724cb81dda50ce1e23a6244ff947f68` still has second parent `03536e36`, and that merge is not an ancestor of `81572208`, which is why the tag is the content base even though git will not choose it.
+
+`git merge 6c2ad793` will run. It will not ask for `--allow-unrelated-histories`. It will use `313ca3d15`. That merge conflicts files the plan says upstream did not touch, including `DownloadsRepository.kt`, `SkipIntroRepository.kt`, and `SubmitIntroDialog.kt` (`git merge-tree --write-tree 81572208 6c2ad793`, 164 conflicts). Resolving those toward upstream drops TheIntroDB and the download gate. Section 3's "empty merge base" and the 4169 count have to be replaced with this.
+
+The documented dry run is the trivial form. On git 2.43, `git merge-tree 03536e36 81572208 6c2ad793` exits 0 and prints "changed in both" diffs (35722 lines). It does not print a tree oid, so `git commit-tree` cannot consume it. `git read-tree -m 03536e36 81572208 6c2ad793` leaves all 109 overlap paths unmerged. It also leaves 13 files unmerged with only stages 1 and 3. We deleted them, and upstream did not change them: seven `.github/workflows/*` issue workflows, `ProfileAvatarBorderColorTest.kt`, `NetworkOfflineCard.kt`, `AudioTrackModal.kt`, `IosVideoSettingsModal.kt`, `SubtitleModal.kt`, `SubtitleSyncByEarCard.kt`. Taking "theirs" there puts the deleted player panels back. `git merge-tree --write-tree --merge-base=03536e36` keeps those 13 deleted.
+
+`git merge-tree --write-tree --merge-base=03536e36 81572208 6c2ad793` exits 1 and prints tree `22effb5255789d88be216db486f3b99f35764b88`. All 42 conflicted blobs in that tree contain `<<<<<<<`. `git commit-tree` of that oid would commit the markers, including into `Version.xcconfig` and `store.json`.
+
+Fix the plan to these commands, and to no others:
+
+```bash
+BASE=03536e36f34daacac7fb27d7e12276cd7bf410d4
+OURS=81572208faeaf871239a1a3087f250d5cf3d630c
+THEIRS=6c2ad7937171965608d05005080b96ca19345379
+
+# Dry run only. Exit 1 means conflicts. Do not commit the printed tree.
+git merge-tree --write-tree --messages --merge-base="$BASE" "$OURS" "$THEIRS"
+
+# Index with an explicit base, then a per-file content merge.
+GIT_INDEX_FILE=.git/sync-1.0.0-index
+git read-tree -m "$BASE" "$OURS" "$THEIRS"
+# in a detached worktree at $OURS, using that index:
+git merge-index -o git-merge-file -a
+
+# After the hand resolutions below:
+test -z "$(git grep -l -e '<<<<<<<' --cached)"
+TREE=$(git write-tree)
+NEW=$(git commit-tree "$TREE" -p "$OURS" -p "$THEIRS" \
+  -m "Merge upstream 1.0.0 using 0.6.10-beta as the content base")
+```
+
+Point the sync branch at `$NEW` with a fast-forward. That is a merge commit with both parents and does not need a force-push.
+
+Checked against a drop of our work: with the explicit base, all 1065 paths that only we changed match `81572208` (0 missing, 0 mismatched blobs in the `read-tree` index). The ort tree leaves `features/analysis`, `features/downloads`, `features/player/skip`, `SeasonOverview`, `sync-worker`, `Diagnostics`, `scripts/build-ios-ipa.sh`, and `scripts/ci` identical to `81572208`. In the 67 overlap paths that ort merges clean, every added line of ours is still present (0 files lost an added line, 0 files had a deletion of ours restored). `PlayerEngine.ios.kt` still contains `PlaybackPriority.sessionStarted`, `noteSnapshot`, and `sessionEnded` (1 each; upstream has 0). The lane files are safe only when the base argument is `03536e36`.
+
+### Blocker — the same dry run already takes the MPVKit pin and turns Auto Sync on
+
+`git merge-tree 03536e36 81572208 6c2ad793` prints:
+
+```text
+merged
+  result 160000 359a885342d4eeda757f8e1d2c24fb01fe6d39c2 MPVKit
+  our    160000 7f40522ab9a18c7f14c04316f71c7dd47e2a7e05 MPVKit
+```
+
+`MPVKit` is not in the 109 because `81572208` still matches `03536e36` (`7f40522ab`). A 3-way merge therefore takes `359a88534` with no conflict. The ort tree does the same. The "keep our pin unless a taken PiP source does not compile" step never runs. Fix: after the merge, `git update-index --cacheinfo 160000,7f40522ab9a18c7f14c04316f71c7dd47e2a7e05,MPVKit`, compile the taken Swift against that pin, and move the gitlink only if that compile fails. Add a gate that fails the sync commit if `git ls-tree HEAD MPVKit` is `359a88534` and the compile-failure note is absent.
+
+The same dry run prints `AutoSyncPreferencesRepository.kt` as merged to blob `c3eb876847bcf9985bf1798a0703787ee0649eb5` (theirs). `81572208` matches the base (`5ece5c860`). Upstream `a6065c8b1` changes both the initial value and the persisted fallback:
+
+```text
+MutableStateFlow(false) -> MutableStateFlow(true)
+loadPersistedValue?.invoke() ?: false -> ?: true
+```
+
+Those seven Auto Sync files are upstream-only, so they do not conflict. `AutoSyncMpvCoordinator.kt` at `6c2ad793` has no reference to `PlaybackPriority`, `DownloadGate`, or `AnalysisThermal`. With the default on, `setSubtitleUriWithRestoredAutoSync` (`SELECTED_THEN_SEARCH`) starts that coordinator during playback. The call-site edit is itself a clean merge of `PlayerRuntimeAutoSync.kt` (ours `setSubtitleUriWithSelectedAutoSync`, result `setSubtitleUriWithRestoredAutoSync`). iOS stays off that path only while `PlayerEngine.ios.kt` does not construct `AutoSyncMpvEngineController` (`IosAutoSyncCallSiteTest` on `81572208`). Android does wrap the controller. Fix: put the two `false` lines back after the merge, keep `SELECTED_THEN_SEARCH`, and add a host test that the in-memory default and the persisted fallback are `false` and that a false preference does not call `coordinator.start`. Do not treat "resolve the 42 conflicts" as covering this file.
+
+### Major — clean overlap merges adopt behavior the table rejects
+
+Ort conflicts 42 of the 109 and clean-merges 67. These hot spots in section 3 do **not** conflict: `PlayerEngine.ios.kt`, `PlayerPictureInPictureController.swift`, `PlayerRuntimeAutoSync.kt`, `ContentView.swift`, `values/strings.xml`, `update-store-source.yml`. A pass that only edits conflict markers will not see them.
+
+- `ProviderFilterRow.kt` and `StreamCard.kt` clean-merge `staticFromBackdrop = true`. `StreamsScreen.kt` conflicts and their side also sets it (lines 639 and 1604 of the conflicted blob). `81572208` has no `staticFromBackdrop`. The settings row says not to adopt a new glass treatment. Fix: revert those arguments; leave the new default-false parameter in `LiquidGlass.kt` if it stays unused.
+- `SubtitleAudioModels.kt` is upstream-only. The same commit `a6065c8b1` sets `useForcedSubtitles` from `false` to `true`. The dry run merges that blob (`01186883a`). The table never mentions it. Fix: keep `false` unless someone explicitly wants forced subtitles on.
+- `update-store-source.yml` clean-merges one line, `if: github.event_name != 'release' || !github.event.release.prerelease`. That changes when `store.json` is published. The table allows workflow edits only when they do not publish and do not rewrite `store.json`. Fix: do not take that line unless a prerelease skip is an explicit decision.
+- `PlayerPictureInPictureController.swift` clean-merges a new `submit(_:pts:isPictureInPictureFrame:doviMetadata:)` and calls `PictureInPictureDolbyVisionConverter.convert` on `frameQueue`. `MPVPlayerBridge.swift` **does** conflict. Resolving the bridge to ours fails to compile against the new `submit`. Below iOS 17 the same file sets `frameQueue = .main` (init in `6c2ad793`), so the converter runs on the main queue. Store minimum is 16.1. Fix: the bridge resolution must pass the new argument or the controller signature stays source-compatible; Dolby conversion stays off `.main` on every OS we ship, including the pre-iOS 17 branch.
+- `PlayerBridge.kt` clean-merges `getIsOpening()`. No Swift file on `81572208` implements it. `MPVPlayerBridge.swift` is the conflict that has to grow that method, or the iOS export breaks. The plan's verification never mentions the Swift protocol. The 0.6.10 review did.
+
+`values/strings.xml` clean-merges and keeps our added lines, including the analysis and season-overview copy. The eight locale files that conflict (`values-ar`, `values-bn`, `values-fr`, `values-he`, `values-id`, `values-in`, `values-sk`, `values-vi`) still need a key union so translated copies of our strings are not replaced by theirs.
+
+### Major — two crash fixes are easy to reject, and the auth fix sits in a 94-line conflict
+
+- `b147e233a` (lighter mpv setup under the jetsam limit) is +17/−3 in `MPVPlayerBridge.swift`, which conflicts. The take list names backing scale, Dolby, HDR, chapters, HLS, seek preview, and error wording. It does not name this hunk. Keeping "our" bridge to protect the lane drops it.
+- `1b60c0a94` (free memory before playback) is +11/−2 in `PlatformImageLoader.ios.kt`, also a conflict. The table lists that path under "Keep our simple settings UI". The delta is the memory trim, so a literal keep-ours drops a jetsam fix.
+- `daa966d36` (stay signed in when session refresh fails) rewrites `AuthRepository.kt` (+94/−45 in that commit's stat). That file conflicts. `AuthSessionErrors.kt` is upstream-only and will be added even if the repository is resolved to ours, which leaves the fix dead. `AuthStorage.android.kt` and `AuthStorage.ios.kt` merge clean. Fix: the repository resolution keeps their refresh-failure path. Add a host test that a failed refresh does not clear the session.
+
+Device-subtitle migration in `PlayerSettingsStorage.ios.kt` (+131/−36) is a clean merge and is the data-preserving half of `d65fa7ab6`. Reverting that file to ours because it is "our storage" drops `migrateLegacySubtitlePreferencesToDeviceStore`. The plan should say that actual stays.
+
+### Major — version and SideStore facts are partly wrong
+
+`Version.xcconfig` and `store.json` are the only version-bearing paths in `git diff --name-only 03536e36 6c2ad793`. Both conflict, so a careful resolution can keep ours. Their xcconfig is `CURRENT_PROJECT_VERSION=157` and `MARKETING_VERSION=1.0.0` and has no telemetry placeholders. Ours at `81572208` is `224`, `0.6.10.1`, and empty `NUVIO_TELEMETRY_INGEST_KEY` / `NUVIO_TELEMETRY_BASE_URL`. Gradle reads the two version keys from that file. `project.pbxproj` is ours-only and does not override them. The widget plist uses `$(CURRENT_PROJECT_VERSION)`. Build `225` is not in `store.json` or the xcconfig. The four-part form matches `update-store-source.yml`'s `^[0-9]+(\.[0-9]+){2,3}(-beta)?$`.
+
+Their `store.json` does **not** reset the build to 157. `versions[0]` at `6c2ad793` is marketing `0.6.13`, build `156`, download host `github.com/luqmanfadlli/NuvioMobile-Enhanced/`. There is no `1.0.0` row. Ours `versions[0]` is `0.6.5.1` build `198` on `github.com/SimSalabimse/NuvioMobile-Enhanced/` (`scripts/update-store-source.py` installs `versions[0]` and drops any row whose download URL is not that host). A JSON union sorts `0.6.13` above `0.6.5.1` and would offer their IPA from our source. Fix: keep `store.json` from `81572208` byte for byte in the sync commit. Do not union the arrays. Let the existing release workflow prepend `1.0.0.1` / `225` only after an IPA exists, and do not take the prerelease guard above. The source listing is already behind the app (224 is not in the file); that is not a reason to import upstream rows.
+
+### Major — verification does not lock the risks
+
+Nothing in section 4 fails if the wrong merge base was used, if conflict markers were committed, if the MPVKit pin moved, if Auto Sync defaulted on, if `useForcedSubtitles` flipped, if `staticFromBackdrop` landed, or if `Version.xcconfig` became 157. `npm test` in `sync-worker/` does not prove the worker was untouched: a green run can follow an edit. The same is true of the playback host tests if a merge edits a path they do not assert.
+
+Add these gates on the sync commit, before the hero follow-up:
+
+- `git diff 81572208 -- features/analysis features/downloads features/player/skip sync-worker iosApp/iosApp/Diagnostics scripts/build-ios-ipa.sh scripts/ci` is empty, and `SeasonOverview` / `PlaybackPriority` blobs match.
+- `git grep -l '<<<<<<<'` is empty.
+- `git ls-tree HEAD MPVKit` is `7f40522ab` unless the compile note above exists.
+- `AutoSyncPreferencesRepository` still has both `false` sites. `IosAutoSyncCallSiteTest` still passes.
+- `useForcedSubtitles` default is `false`. `staticFromBackdrop = true` is absent.
+- `Version.xcconfig` is `1.0.0.1` and `225`, telemetry lines empty. `store.json` matches `81572208`.
+- New `NuvioPlayerBridge` methods (`getIsOpening`) exist on the Swift implementor.
+- Host tests that already exist and should be named: `DownloadGateDecisionTest`, `AnalysisRunGateTest`, `IosAutoSyncCallSiteTest`, `SeasonOverviewListTest`, `SeasonOverviewTest`, `SeasonOverviewChipLayoutTest`, `HomeInsetsTest`, `HomeHeroSectionTest`, `HomeHeroBoundsTest`, `HomeHeroFollowLayoutTest`. The last one is already on `81572208`.
+- One iOS compile of the PiP Swift against the kept MPVKit pin, then a second only if the pin has to move.
+
+Run `44051970087` is real (success, "iOS simulator compile", title "Build 222: next episode stays ready", head `5811e1805dbda73592ff8539c168c8aca7eec9c3`). That object is not in this clone of `enhanced`, and the title is build 222, not 224. Keep it labeled as an older run. It is not a before-measurement of `81572208`.
+
+There is still no host test for PiP teardown on the main queue, Dolby conversion off the main queue, or the idle gate under a real thermal state. Those stay device work. The source gates above are what stop the merge from reaching that device with the lane already rewritten.
+
+### Minor
+
+- Section 1's `ci(release)` stable/beta note is a commit subject (`70b7a6c5d` touches `android-release.yml` and `scripts/release-metadata.sh`). The net `03536e36..6c2ad793` diff of those paths is empty. The only workflow delta is the one prerelease line.
+- `PictureInPictureSubtitleComposer.swift` already exists on `81572208` (177 lines at `6c2ad793`). It is upstream-only, so HDR compositing replaces the file with no conflict. Name it next to the Dolby converter so that replace is reviewed, not discovered at compile time.
+- `ContentView.swift` clean-merges `.ignoresSafeArea(edges: [.top, .leading, .trailing])` on the toolbar fade, not on the hero. The Dynamic Island risk stays in the `HomeHeroSection.kt` conflict and in `HomeInsets.kt`, which upstream did not touch.
+
+### What not to redesign
+
+Keep `03536e36` as the content base, keep a merge commit with parents `81572208` and `6c2ad793`, keep the lane and the idle gate byte for byte, keep TheIntroDB and season overview, keep build `225` and marketing `1.0.0.1`, and keep our `store.json`. Replace the merge commands, add the post-merge restores for every clean take the table rejects, name the jetsam and auth hunks as takes, and add the gates above. That is a plan fix, not a new sync design.
