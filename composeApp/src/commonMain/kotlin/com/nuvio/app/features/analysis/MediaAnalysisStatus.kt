@@ -17,7 +17,13 @@ sealed interface AnalysisJobState {
     data object Idle : AnalysisJobState
     data object Starting : AnalysisJobState
     data object WaitingForCharger : AnalysisJobState
+    /** The picture is actually moving. */
     data object WaitingForPlayback : AnalysisJobState
+    /** Fair heat or warmer while a download is transferring. Nothing is playing. */
+    data object WaitingWhileDownloading : AnalysisJobState
+    /** Serious or critical heat. Nothing is playing. */
+    data object WaitingForHeat : AnalysisJobState
+    data object WaitingForLowPower : AnalysisJobState
     data class Running(
         val itemId: String,
         val title: String,

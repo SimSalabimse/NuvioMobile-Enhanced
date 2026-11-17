@@ -48,12 +48,18 @@ internal object PlaybackPriority {
     /** A position change this far beyond what playback (up to 4x) explains is a seek or reload. */
     private const val JUMP_SLACK_MS = 3_000L
     private const val MAX_SPEED = 4L
+    private const val STALE_PLAYBACK_MS = 3_000L
 
     var level: Level = Level.Normal
         private set
     private var sessionOpen = false
-    /** True only while the video is actually playing, not while it is paused or stopped. */
+    /** Download lane. Play-when-ready, including while the player is buffering. */
     private var videoPlaying = false
+    /** Analysis. True only while the picture is actually moving. */
+    private var actuallyPlaying = false
+    private var pictureInPicture = false
+    private var backgroundSuspended = false
+    private var lastLiveMs = 0L
     private var appliedDownloadGateKey: String? = null
     private var nextUpParentId: String? = null
     private var nextUpSeason: Int? = null
@@ -90,25 +96,58 @@ internal object PlaybackPriority {
         lastPositionMs = -1L
         lastTickMs = 0L
         videoPlaying = true
+        actuallyPlaying = false
+        backgroundSuspended = false
+        lastLiveMs = com.nuvio.app.features.streams.epochMs()
         appliedDownloadGateKey = null
         setAnalysisPlayerSessionOpen(true)
+        logPresence("present")
         InAppLogger.info("PlaybackPriority", "player opened local=$isLocalFile")
         logPlayback("start", lastPositionMs)
         apply(Level.Playing, always = true)
     }
 
     /**
-     * Every player snapshot (main thread). [wantsToPlay] is play-when-ready, [buffering] the
-     * player waiting for data (mpv: idle, seeking or paused for cache), [positionMs] the playhead.
+     * Every player snapshot (main thread). [wantsToPlay] is play-when-ready and drives the
+     * download lane. [pictureMoving] is the picture actually moving and drives analysis.
      */
-    fun noteSnapshot(wantsToPlay: Boolean, buffering: Boolean, positionMs: Long, nowMs: Long) {
-        if (!sessionOpen) return
-        videoPlaying = wantsToPlay
+    fun noteSnapshot(
+        wantsToPlay: Boolean,
+        buffering: Boolean,
+        positionMs: Long,
+        nowMs: Long,
+        pictureMoving: Boolean = wantsToPlay,
+        ended: Boolean = false,
+        failed: Boolean = false,
+    ) {
+        lastLiveMs = nowMs
+        if (backgroundSuspended) return
+        if (!sessionOpen) {
+            sessionOpen = true
+            setAnalysisPlayerSessionOpen(true)
+            logPresence("present")
+        }
+        val moving = pictureMoving && !ended && !failed
+        val lane = wantsToPlay && !ended && !failed
+        if (ended || failed) {
+            val reason = if (ended) "end" else "error"
+            val wasOn = actuallyPlaying || videoPlaying
+            actuallyPlaying = false
+            videoPlaying = false
+            if (wasOn) logPresence(reason)
+        } else {
+            if (actuallyPlaying != moving) {
+                actuallyPlaying = moving
+                logPresence(if (moving) "playing" else "paused")
+            }
+            videoPlaying = lane
+        }
         try {
             noteSnapshotBody(buffering, positionMs, nowMs)
         } finally {
             logPlayback(if (videoPlaying) "start" else "pause", positionMs)
             publishDownloadGate()
+            publishAnalysisThrottle(videoPlaying = actuallyPlaying && sessionOpen)
         }
     }
 
@@ -158,7 +197,7 @@ internal object PlaybackPriority {
         when (level) {
             Level.Normal -> apply(Level.Playing)
             Level.Strained -> if (nowMs - lastStrainMs >= STRAIN_COOL_DOWN_MS) apply(Level.Playing)
-            Level.Playing -> publishAnalysisThrottle(videoPlaying = true)
+            Level.Playing -> publishAnalysisThrottle(videoPlaying = actuallyPlaying)
         }
     }
 
@@ -168,7 +207,7 @@ internal object PlaybackPriority {
 
     fun boostAnalysis(on: Boolean) {
         analysisBoosted = on
-        publishAnalysisThrottle(videoPlaying = sessionOpen && pausedSinceMs == 0L)
+        publishAnalysisThrottle(videoPlaying = analysisPictureMoving(com.nuvio.app.features.streams.epochMs()))
     }
 
     /** Thermal state or Low Power Mode changed. Logs every change, then reapplies the hold. */
@@ -179,10 +218,57 @@ internal object PlaybackPriority {
 
     fun notePlaybackError(positionMs: Long) {
         logPlayback("error", positionMs)
+        if (actuallyPlaying || videoPlaying) logPresence("error")
+        actuallyPlaying = false
+        videoPlaying = false
+        publishAnalysisThrottle(videoPlaying = false)
+        publishDownloadGate()
+    }
+
+    /** Nothing is playing in the background unless Picture in Picture is keeping it. */
+    fun noteAppBackground(inPictureInPicture: Boolean) {
+        pictureInPicture = inPictureInPicture
+        if (inPictureInPicture) {
+            logPresence("background-pip")
+            return
+        }
+        if (!sessionOpen && !actuallyPlaying && !videoPlaying) return
+        backgroundSuspended = true
+        actuallyPlaying = false
+        videoPlaying = false
+        sessionOpen = false
+        setAnalysisPlayerSessionOpen(false)
+        logPresence("background")
+        apply(Level.Normal)
+    }
+
+    fun noteAppForeground() {
+        if (!backgroundSuspended) return
+        backgroundSuspended = false
+        logPresence("foreground")
+    }
+
+    fun notePictureInPictureStopped() {
+        pictureInPicture = false
+        if (actuallyPlaying || videoPlaying) {
+            actuallyPlaying = false
+            videoPlaying = false
+            publishAnalysisThrottle(videoPlaying = false)
+            publishDownloadGate()
+        }
+        logPresence("pip-stop")
+    }
+
+    fun notePlaybackEnded() {
+        if (actuallyPlaying || videoPlaying) logPresence("end")
+        actuallyPlaying = false
+        videoPlaying = false
+        publishAnalysisThrottle(videoPlaying = false)
+        publishDownloadGate()
     }
 
     fun notePowerChanged() {
-        val playing = sessionOpen && pausedSinceMs == 0L
+        val playing = analysisPictureMoving(com.nuvio.app.features.streams.epochMs())
         val power = AnalysisPower.snapshot()
         val powerKey = "${power.thermal.name.lowercase()}|${power.lowPowerMode}"
         if (powerKey != lastPowerKey) {
@@ -220,7 +306,7 @@ internal object PlaybackPriority {
      * the power path checks this, including after a hold whose reason was "power".
      */
     fun pauseReasonNow(): String? {
-        val playing = sessionOpen && pausedSinceMs == 0L
+        val playing = analysisPictureMoving(com.nuvio.app.features.streams.epochMs())
         publishAnalysisThrottle(videoPlaying = playing)
         val power = AnalysisPower.snapshot()
         val reason = analysisPauseReason(playing, power.thermal, power.lowPowerMode, transfersActive)
@@ -238,6 +324,10 @@ internal object PlaybackPriority {
     fun sessionEnded() {
         clearNextUp()
         analysisBoosted = false
+        backgroundSuspended = false
+        pictureInPicture = false
+        if (actuallyPlaying || videoPlaying || sessionOpen) logPresence("dismiss")
+        actuallyPlaying = false
         videoPlaying = false
         appliedDownloadGateKey = null
         setAnalysisPlayerSessionOpen(false)
@@ -330,7 +420,7 @@ internal object PlaybackPriority {
         transfersActive = active
         setAnalysisTransferActive(active)
         if (!changed) return
-        publishAnalysisThrottle(videoPlaying = sessionOpen && pausedSinceMs == 0L)
+        publishAnalysisThrottle(videoPlaying = analysisPictureMoving(com.nuvio.app.features.streams.epochMs()))
     }
 
     private fun publishDownloadGate() {
@@ -410,7 +500,7 @@ internal object PlaybackPriority {
     private fun apply(next: Level, always: Boolean = false) {
         if (level == next && !always) return
         level = next
-        publishAnalysisThrottle(videoPlaying = sessionOpen && pausedSinceMs == 0L)
+        publishAnalysisThrottle(videoPlaying = actuallyPlaying && sessionOpen && !backgroundSuspended)
         InAppLogger.info("PlaybackPriority", "level=$next downloads allowed=${downloadCap()}")
         publishDownloadGate()
         // Heat is read again before a start, including the power path.
@@ -485,10 +575,44 @@ internal object PlaybackPriority {
         logProcessMemory(event)
     }
 
+    /** Analyse now. A quiet picture does not keep the playback hold. The download lane stays. */
+    fun dropStalePlaybackForManualStart() {
+        val nowMs = com.nuvio.app.features.streams.epochMs()
+        if (analysisPictureMoving(nowMs) || !actuallyPlaying) return
+        actuallyPlaying = false
+        logPresence("stale")
+        publishAnalysisThrottle(videoPlaying = false)
+    }
+
+    /**
+     * True only while a snapshot says the picture is moving and that snapshot is still fresh.
+     * A stale picture releases analysis only. Downloads keep the play-when-ready lane.
+     */
+    internal fun analysisPictureMoving(nowMs: Long): Boolean {
+        if (backgroundSuspended || !sessionOpen || !actuallyPlaying) return false
+        if (!pictureInPicture && lastLiveMs > 0L && nowMs - lastLiveMs > STALE_PLAYBACK_MS) return false
+        return true
+    }
+
+    private fun logPresence(reason: String) {
+        BehaviourEvents.record(
+            "playback-presence",
+            mapOf(
+                "playing" to if (actuallyPlaying) "true" else "false",
+                "attached" to if (sessionOpen) "true" else "false",
+                "reason" to reason,
+            ),
+        )
+    }
+
     /** Process start: drop a session flag or throttle left behind by a player in an earlier run. */
     fun clearStaleSession() {
         sessionOpen = false
         videoPlaying = false
+        actuallyPlaying = false
+        pictureInPicture = false
+        backgroundSuspended = false
+        lastLiveMs = 0L
         analysisBoosted = false
         pausedSinceMs = 0L
         appliedDownloadGateKey = null

@@ -86,6 +86,26 @@ class BehaviourLogTest {
     }
 
     @Test
+    fun aStaleSnapshotUploadsThenTheLiveRingIsNext() {
+        val disk = MemoryBehaviourDisk()
+        val session = BehaviourLogSession(disk, nowMs = { 1L }, launchId = "launch-a")
+        session.record("stale")
+        val rotated = session.beginUpload()
+        assertTrue(rotated.contains("\"kind\":\"stale\""))
+        assertFalse(session.lastUploadWasPending())
+        session.record("live")
+        val pending = session.beginUpload()
+        assertTrue(pending.contains("\"kind\":\"stale\""))
+        assertFalse(pending.contains("\"kind\":\"live\""))
+        assertTrue(session.lastUploadWasPending())
+        assertTrue(session.text().contains("\"kind\":\"live\""))
+        session.completeUpload(200)
+        val follow = session.beginUpload()
+        assertTrue(follow.contains("\"kind\":\"live\""))
+        assertFalse(session.lastUploadWasPending())
+    }
+
+    @Test
     fun uploadSnapshotDoesNotDeleteNewerEvents() {
         val disk = MemoryBehaviourDisk()
         val session = BehaviourLogSession(disk, nowMs = { 1L }, launchId = "launch-a")

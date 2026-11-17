@@ -1,4 +1,5 @@
 import AVKit
+import ComposeApp
 import CoreMedia
 
 let playerSceneDidActivateNotification = Notification.Name("NuvioPlayerSceneDidActivate")
@@ -380,6 +381,7 @@ final class PlayerPictureInPictureController: NSObject,
         shouldReturnToInline = false
         metalLayer?.nuvioPiPConsumesVideo = isBackground
         if isBackground { owner?.pauseBackgroundPlayback() }
+        MediaAnalysisBackground.shared.playerPictureInPictureStopped()
         if isParked {
             DispatchQueue.main.async {
                 MainActor.assumeIsolated { PlayerPictureInPictureParking.shared.closeParked() }

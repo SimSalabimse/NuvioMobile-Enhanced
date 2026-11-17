@@ -138,13 +138,15 @@ struct DiagnosticsSettingsView: View {
     }
 
     private func uploadNow() {
-        switch BehaviourUploadTask.route() {
-        case .wifi:
-            BehaviourUploadTask.upload(now: true) { _ in }
-        case .cellular:
-            confirmCellular = true
-        case .offline:
-            BehaviourShare.recordAttempt(ok: false, detail: "No network")
+        BehaviourUploadTask.route { decided in
+            switch decided {
+            case .wifi:
+                BehaviourUploadTask.upload(now: true) { _ in }
+            case .cellular:
+                confirmCellular = true
+            case .offline:
+                BehaviourShare.recordAttempt(ok: false, detail: "No network")
+            }
         }
     }
 }

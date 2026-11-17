@@ -2,6 +2,18 @@
   "releases": [
     {
       "version": "0.6.10.1",
+      "build": 224,
+      "date": "2026-11-17",
+      "new": [],
+      "improved": [],
+      "fixed": [
+        "On-device analysis says when the phone is hot, instead of saying something is playing.",
+        "The playing pause clears when playback actually stops.",
+        "Upload now waits for the network path, then sends the current log after an old one."
+      ]
+    },
+    {
+      "version": "0.6.10.1",
       "build": 223,
       "date": "2026-11-16",
       "new": [],

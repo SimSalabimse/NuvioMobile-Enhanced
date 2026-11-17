@@ -224,10 +224,16 @@ internal class BehaviourLogSession(
         disk.write(ring.active, ring.previous)
     }
 
+    private var pendingBatch = false
+
     /** The batch already waiting, or the live ring rotated out of the way. */
     fun beginUpload(): String {
         val waiting = disk.readSnapshot()
-        if (waiting.isNotBlank()) return waiting
+        if (waiting.isNotBlank()) {
+            pendingBatch = true
+            return waiting
+        }
+        pendingBatch = false
         flush()
         val batch = text()
         if (batch.isBlank()) return ""
@@ -237,6 +243,9 @@ internal class BehaviourLogSession(
         disk.write("", "")
         return batch
     }
+
+    /** True when [beginUpload] returned a snapshot left by an earlier attempt. */
+    fun lastUploadWasPending(): Boolean = pendingBatch
 
     /** A 2xx drops the snapshot only. Events written after [beginUpload] stay. */
     fun completeUpload(status: Int) {
@@ -323,6 +332,12 @@ internal object BehaviourEvents {
     fun beginUpload(): String {
         var value = ""
         behaviourSync { value = lock.withLock { session.beginUpload() } }
+        return value
+    }
+
+    fun lastUploadWasPending(): Boolean {
+        var value = false
+        behaviourSync { value = lock.withLock { session.lastUploadWasPending() } }
         return value
     }
 

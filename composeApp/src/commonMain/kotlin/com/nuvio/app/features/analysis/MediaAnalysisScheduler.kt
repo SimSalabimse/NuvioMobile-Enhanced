@@ -283,6 +283,7 @@ internal object MediaAnalysisScheduler {
 
     /** "Analyse now": forget this session's failures and start at once (also replaces a pending start). */
     fun analyseNow() {
+        com.nuvio.app.features.downloads.PlaybackPriority.dropStalePlaybackForManualStart()
         failedThisSession.clear()
         retries.clear()
         MediaAnalysisStatus.clearAllFailures()
@@ -461,11 +462,12 @@ internal object MediaAnalysisScheduler {
             val pauseReason = com.nuvio.app.features.downloads.PlaybackPriority.pauseReasonNow()
             if (pauseReason != null) {
                 if (fromBackgroundTask) return false
-                if (MediaAnalysisStatus.job.value !is AnalysisJobState.WaitingForPlayback) {
+                val waiting = analysisWaitJob(pauseReason)
+                if (MediaAnalysisStatus.job.value != waiting) {
                     exportNote("-", "queue", pauseReason, "waiting")
+                    MediaAnalysisStatus.setJob(waiting)
                 }
                 noteWait(pauseReason, true)
-                MediaAnalysisStatus.setJob(AnalysisJobState.WaitingForPlayback)
                 delayWake.sleep(PLAYBACK_POLL_MS)
                 continue
             }
@@ -1252,6 +1254,22 @@ internal object MediaAnalysisScheduler {
 
 /** Entry points for the iOS app delegate and background task. */
 object MediaAnalysisBackground {
+    fun playerEnteredBackground(pictureInPicture: Boolean) {
+        com.nuvio.app.features.downloads.PlaybackPriority.noteAppBackground(pictureInPicture)
+    }
+
+    fun playerEnteredForeground() {
+        com.nuvio.app.features.downloads.PlaybackPriority.noteAppForeground()
+    }
+
+    fun playerPictureInPictureStopped() {
+        com.nuvio.app.features.downloads.PlaybackPriority.notePictureInPictureStopped()
+    }
+
+    fun playerReleased() {
+        com.nuvio.app.features.downloads.PlaybackPriority.sessionEnded()
+    }
+
     fun appDidLaunch() {
         // A throttle or a player-open flag left from an earlier process must not hold the analyser
         // or keep its queue at the lower QoS.

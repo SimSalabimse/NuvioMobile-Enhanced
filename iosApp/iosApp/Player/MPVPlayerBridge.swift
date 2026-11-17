@@ -1080,7 +1080,9 @@ final class MPVPlayerViewController: UIViewController {
             guard let self, self.mpvGeneration == coreGeneration, self.mpv != nil else { return }
             self.hwdecBeforeBackground = self.getString("hwdec-current")
         }
-        if pictureInPictureController?.enteredBackground() == true { return }
+        let keptInPicture = pictureInPictureController?.enteredBackground() == true
+        MediaAnalysisBackground.shared.playerEnteredBackground(pictureInPicture: keptInPicture)
+        if keptInPicture { return }
         beginBackgroundGracePeriod()
     }
 
@@ -1119,6 +1121,7 @@ final class MPVPlayerViewController: UIViewController {
     }
 
     @objc private func enterForeground() {
+        MediaAnalysisBackground.shared.playerEnteredForeground()
         cancelBackgroundGracePeriod()
         resumeRenderingAfterDeviceLossIfPossible(reason: "enter-foreground")
         guard mpv != nil else { return }
@@ -2458,6 +2461,7 @@ final class MPVPlayerViewController: UIViewController {
             completion?()
             return
         }
+        MediaAnalysisBackground.shared.playerReleased()
         if isPlayerDestroyed {
             if let completion { teardownWaiters.append(completion) }
             return

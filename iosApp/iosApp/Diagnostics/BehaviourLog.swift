@@ -133,7 +133,7 @@ enum BehaviourShare {
     }
 }
 
-enum BehaviourUploadRoute {
+enum BehaviourUploadRoute: Equatable {
     case wifi
     case cellular
     case offline
@@ -146,6 +146,7 @@ enum BehaviourUploadTask {
         NuvioBehaviourLogRegistry.shared.register(log: BehaviourFileBridge())
         MXMetricManager.shared.add(BehaviourMetrics.shared)
         BehaviourLogFiles_iosKt.nuvioBehaviourOpen()
+        BehaviourPath.start()
         DispatchQueue.global(qos: .utility).async {
             BehaviourLogFiles_iosKt.nuvioRecordBehaviour(kind: "launch")
         }
@@ -191,11 +192,23 @@ enum BehaviourUploadTask {
         try? BGTaskScheduler.shared.submit(request)
     }
 
-    static func route() -> BehaviourUploadRoute {
-        let path = pathMonitor.currentPath
-        if path.status != .satisfied { return .offline }
-        if path.usesInterfaceType(.cellular) && !path.usesInterfaceType(.wifi) { return .cellular }
+    static func decide(satisfied: Bool, wifi: Bool, cellular: Bool) -> BehaviourUploadRoute {
+        if !satisfied { return .offline }
+        if cellular && !wifi { return .cellular }
         return .wifi
+    }
+
+    /// Waits for the first path update, so the first tap is not "No network" before the monitor has a path.
+    static func route(done: @escaping (BehaviourUploadRoute) -> Void) {
+        BehaviourPath.start()
+        BehaviourPath.path(timeout: 0.5) { path in
+            let decided = decide(
+                satisfied: path.status == .satisfied,
+                wifi: path.usesInterfaceType(.wifi),
+                cellular: path.usesInterfaceType(.cellular)
+            )
+            DispatchQueue.main.async { done(decided) }
+        }
     }
 
     /// [now] skips the six-hour wait. Cellular is used only after the settings row confirms it.
@@ -226,34 +239,58 @@ enum BehaviourUploadTask {
             finish(false, "Not configured", now)
             return
         }
+        let send: () -> Void = {
+            sendBatch(destination: destination, ingest: ingest, token: token, now: now, allowFollowUp: true, finish: finish)
+        }
         if now {
-            switch route() {
-            case .offline:
-                finish(false, "No network", true)
-                return
-            case .cellular where !allowCellular:
-                finish(false, "Needs cellular confirm", true)
-                return
-            case .cellular, .wifi:
-                break
+            route { decided in
+                switch decided {
+                case .offline:
+                    finish(false, "No network", true)
+                case .cellular where !allowCellular:
+                    finish(false, "Needs cellular confirm", true)
+                case .cellular, .wifi:
+                    send()
+                }
             }
-        } else {
-            let path = pathMonitor.currentPath
+            return
+        }
+        BehaviourPath.start()
+        BehaviourPath.path(timeout: 0.5) { path in
             let wifi = path.status == .satisfied && path.usesInterfaceType(.wifi) && !path.isExpensive && !path.isConstrained
-            if !wifi || ProcessInfo.processInfo.isLowPowerModeEnabled {
-                finish(false, "", false)
-                return
-            }
-            let last = UserDefaults.standard.double(forKey: BehaviourShare.lastUploadKey)
-            if last > 0, Date().timeIntervalSince1970 - last < 6 * 60 * 60 {
-                finish(false, "", false)
-                return
+            DispatchQueue.main.async {
+                if !wifi || ProcessInfo.processInfo.isLowPowerModeEnabled {
+                    finish(false, "", false)
+                    return
+                }
+                let last = UserDefaults.standard.double(forKey: BehaviourShare.lastUploadKey)
+                if last > 0, Date().timeIntervalSince1970 - last < 6 * 60 * 60 {
+                    finish(false, "", false)
+                    return
+                }
+                send()
             }
         }
+    }
+
+    /// One gzip body, at most 512 KB. A leftover snapshot is sent first. After that 2xx, the live ring follows once.
+    private static func sendBatch(
+        destination: URL,
+        ingest: String?,
+        token: String,
+        now: Bool,
+        allowFollowUp: Bool,
+        finish: @escaping (Bool, String, Bool) -> Void
+    ) {
         DispatchQueue.global(qos: .utility).async {
             let body = BehaviourLogFiles_iosKt.nuvioBehaviourBeginUpload()
+            let wasPending = BehaviourLogFiles_iosKt.nuvioBehaviourLastUploadWasPending()
             guard let raw = body.data(using: .utf8), !raw.isEmpty, let gzipped = gzip(raw), gzipped.count <= 512 * 1024 else {
-                finish(false, "Nothing to send", now)
+                if !allowFollowUp {
+                    finish(true, "OK", true)
+                } else {
+                    finish(false, "Nothing to send", now)
+                }
                 return
             }
             var request = URLRequest(url: destination)
@@ -266,9 +303,9 @@ enum BehaviourUploadTask {
             } else {
                 request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             }
-            let build = (Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "223")
+            let build = (Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "224")
                 .filter { $0.isNumber || $0 == "." }
-            request.setValue(build.isEmpty ? "223" : String(build.prefix(32)), forHTTPHeaderField: "X-Nuvio-App-Build")
+            request.setValue(build.isEmpty ? "224" : String(build.prefix(32)), forHTTPHeaderField: "X-Nuvio-App-Build")
             request.setValue("behaviour", forHTTPHeaderField: "X-Nuvio-Kind")
             request.httpBody = gzipped
             URLSession.shared.dataTask(with: request) { _, response, _ in
@@ -276,7 +313,18 @@ enum BehaviourUploadTask {
                 BehaviourLogFiles_iosKt.nuvioBehaviourFinishUpload(status: Int32(code))
                 if (200..<300).contains(code) {
                     UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: BehaviourShare.lastUploadKey)
-                    finish(true, "OK", true)
+                    if wasPending && allowFollowUp {
+                        sendBatch(
+                            destination: destination,
+                            ingest: ingest,
+                            token: token,
+                            now: now,
+                            allowFollowUp: false,
+                            finish: finish
+                        )
+                    } else {
+                        finish(true, "OK", true)
+                    }
                 } else if code == 0 {
                     finish(false, "No response", true)
                 } else {
@@ -285,12 +333,6 @@ enum BehaviourUploadTask {
             }.resume()
         }
     }
-
-    private static let pathMonitor: NWPathMonitor = {
-        let monitor = NWPathMonitor()
-        monitor.start(queue: DispatchQueue(label: "tv.nuvio.behaviour.path"))
-        return monitor
-    }()
 
     private static func gzip(_ data: Data) -> Data? {
         guard !data.isEmpty else { return nil }
@@ -322,6 +364,45 @@ enum BehaviourUploadTask {
             }
             if written <= 0 { return nil }
             return output.prefix(written)
+        }
+    }
+}
+
+/// Starts at launch. The first path update is the one Upload now waits for.
+enum BehaviourPath {
+    private static let queue = DispatchQueue(label: "tv.nuvio.behaviour.path")
+    private static let state = DispatchQueue(label: "tv.nuvio.behaviour.path.state")
+    private static let monitor = NWPathMonitor()
+    private static var started = false
+    private static var ready = false
+    private static var latest: NWPath?
+
+    static func start() {
+        state.sync {
+            guard !started else { return }
+            started = true
+            monitor.pathUpdateHandler = { path in
+                state.sync {
+                    latest = path
+                    ready = true
+                }
+            }
+            monitor.start(queue: queue)
+        }
+    }
+
+    static func path(timeout: TimeInterval, done: @escaping (NWPath) -> Void) {
+        start()
+        queue.async {
+            let snapshot = state.sync { (ready, latest) }
+            if snapshot.0, let path = snapshot.1 {
+                done(path)
+                return
+            }
+            queue.asyncAfter(deadline: .now() + timeout) {
+                let path = state.sync { latest } ?? monitor.currentPath
+                done(path)
+            }
         }
     }
 }

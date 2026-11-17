@@ -1,4 +1,4 @@
-CURRENT_PROJECT_VERSION = 223
+CURRENT_PROJECT_VERSION = 224
 MARKETING_VERSION=0.6.10.1
 // Empty unless packaging passes the values. Never commit a key.
 NUVIO_TELEMETRY_INGEST_KEY=

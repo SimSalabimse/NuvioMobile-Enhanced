@@ -596,12 +596,17 @@ actual fun PlatformPlayerSurface(
             )
             noteInAppPlaybackPlaying(snapshot.isPlaying && !snapshot.isEnded)
             val nowMs = com.nuvio.app.features.streams.epochMs()
-            val wantsToPlay = latestPlayWhenReady.value && !snapshot.isEnded
+            val failed = bridge.getErrorMessage().isNotBlank()
+            val ended = snapshot.isEnded
+            val wantsToPlay = latestPlayWhenReady.value && !ended && !failed
             com.nuvio.app.features.downloads.PlaybackPriority.noteSnapshot(
                 wantsToPlay = wantsToPlay,
                 buffering = snapshot.isLoading,
                 positionMs = snapshot.positionMs,
                 nowMs = nowMs,
+                pictureMoving = snapshot.isPlaying && !ended && !failed,
+                ended = ended,
+                failed = failed,
             )
             val url = latestSourceUrl.value
             val localFile = isLocalPlaybackUrl(url)

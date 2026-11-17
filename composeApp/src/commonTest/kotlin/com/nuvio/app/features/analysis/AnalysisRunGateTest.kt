@@ -17,6 +17,28 @@ class AnalysisRunGateTest {
     }
 
     @Test
+    fun seriousHeatWithNoPlaybackShowsTheHeatText() {
+        val reason = analysisPauseReason(
+            videoPlaying = false,
+            thermal = AnalysisThermal.Serious,
+            lowPowerMode = false,
+            transferActive = false,
+        )
+        assertEquals("thermal-serious", reason)
+        assertEquals(AnalysisJobState.WaitingForHeat, analysisWaitJob(reason!!))
+        assertEquals(
+            "Paused while the phone is hot. It continues when it cools down.",
+            analysisHoldMessage(reason),
+        )
+        assertEquals(
+            "Paused while something is playing. It continues when you stop watching.",
+            analysisHoldMessage("playback"),
+        )
+        assertEquals(AnalysisJobState.WaitingWhileDownloading, analysisWaitJob("download"))
+        assertEquals(AnalysisJobState.WaitingForLowPower, analysisWaitJob("low-power"))
+    }
+
+    @Test
     fun seriousOrCriticalThermalPausesEvenWhenNothingIsPlaying() {
         assertEquals("thermal-serious", analysisPauseReason(videoPlaying = false, AnalysisThermal.Serious, lowPowerMode = false))
         assertEquals("thermal-critical", analysisPauseReason(videoPlaying = false, AnalysisThermal.Critical, lowPowerMode = false))

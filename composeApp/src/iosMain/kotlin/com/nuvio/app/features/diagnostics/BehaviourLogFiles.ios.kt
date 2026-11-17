@@ -77,6 +77,8 @@ fun nuvioBehaviourSnapshot(): String = BehaviourEvents.snapshot()
 
 fun nuvioBehaviourBeginUpload(): String = BehaviourEvents.beginUpload()
 
+fun nuvioBehaviourLastUploadWasPending(): Boolean = BehaviourEvents.lastUploadWasPending()
+
 fun nuvioBehaviourFinishUpload(status: Int) {
     BehaviourEvents.completeUpload(status)
 }
