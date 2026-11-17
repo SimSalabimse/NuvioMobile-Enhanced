@@ -287,7 +287,7 @@ private final class MediaAnalysisRun {
 
     /// The same heat rule as a full pass: serious, critical, Low Power Mode,
     /// or fair and above while a download is transferring.
-    private static func introPowerAbort() -> Bool = MediaAnalyzerThrottle.heatBlocksStart()
+    private static func introPowerAbort() -> Bool { MediaAnalyzerThrottle.heatBlocksStart() }
 
     func run() -> String? {
         // Drop back to the queue's utility class when this job ends, including on failure,
