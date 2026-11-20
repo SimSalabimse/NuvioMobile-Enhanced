@@ -116,12 +116,13 @@ jobs:
 
   ui-sim:
     name: ui-sim
-    runs-on: macos-latest
-    # The free runner was cancelled at 55 minutes while Xcode was still
-    # compiling. 90 minutes is the margin. Gradle and Kotlin/Native caches
-    # stay warm across runs.
+    # The free macOS image has Xcode 26, which cannot compile this app, and
+    # its rebuild was cancelled at 55 minutes. This job uses the Xcode 27
+    # runner, with 90 minutes and the Gradle and Kotlin/Native caches.
+    runs-on: xcode-27
     timeout-minutes: 90
     env:
+      DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
       GRADLE_OPTS: -Dfile.encoding=UTF-8
       NUVIO_IOS_DISTRIBUTION: appstore
     steps:
