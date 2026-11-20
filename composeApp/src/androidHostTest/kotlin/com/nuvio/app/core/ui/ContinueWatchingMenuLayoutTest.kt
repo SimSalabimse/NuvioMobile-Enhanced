@@ -17,6 +17,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performScrollTo
 import android.provider.Settings
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.backdrops.emptyBackdrop
@@ -142,7 +143,15 @@ class ContinueWatchingMenuLayoutTest {
         labels.forEach { label ->
             compose.onNodeWithText(label).assertExists()
         }
-        val remove = compose.onNodeWithText("Remove").getBoundsInRoot()
+        // On the short SE window the nine rows do not fit above the tab bar, so the
+        // menu scrolls and the clipped last row reports an empty rect. Scroll only
+        // in that case. A crushed row has no scroll parent, so this still fails.
+        var remove = compose.onNodeWithText("Remove").getBoundsInRoot()
+        if (remove.bottom <= remove.top) {
+            compose.onNodeWithText("Remove").performScrollTo()
+            compose.waitForIdle()
+            remove = compose.onNodeWithText("Remove").getBoundsInRoot()
+        }
         assertTrue(
             remove.top >= window.top + safeTop && remove.bottom > remove.top,
             "Remove $remove menu $menu window $window safeTop $safeTop progress $progress",

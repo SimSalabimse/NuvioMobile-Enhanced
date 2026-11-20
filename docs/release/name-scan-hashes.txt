@@ -1,0 +1,4 @@
+# SHA-256 hashes of lowercased personal-name tokens.
+# One 64-character hex digest per line. This file must never contain a name.
+# Blank lines and lines starting with # are ignored.
+# The list is empty until the owner adds hashes in a follow-up.

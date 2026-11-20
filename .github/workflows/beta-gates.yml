@@ -1,0 +1,261 @@
+name: beta-gates
+
+# Required checks for a pull request into beta. GitHub shows each name as
+# "beta-gates / <job>". A ruleset can require these names.
+on:
+  pull_request:
+    branches:
+      - beta
+  push:
+    branches:
+      - beta
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: beta-gates-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compile-ios:
+    name: compile-ios
+    uses: ./.github/workflows/ios-simulator-compile.yml
+
+  compile-android:
+    name: compile-android
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Compile Android and shared code
+        run: |
+          touch local.properties
+          ./gradlew :composeApp:compileAndroidMain --stacktrace
+
+  build:
+    name: build
+    needs: [compile-ios, compile-android]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require the iOS and Android compiles
+        run: |
+          set -euo pipefail
+          test "${{ needs.compile-ios.result }}" = success
+          test "${{ needs.compile-android.result }}" = success
+
+  tests:
+    name: tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      NUVIO_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+      NUVIO_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      NUVIO_BASE_REF: ${{ github.base_ref || 'beta' }}
+      NUVIO_PR_BODY: ${{ github.event.pull_request.body }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: sync-worker/package-lock.json
+
+      - name: Prefetch Robolectric
+        run: |
+          set -euo pipefail
+          version="14-robolectric-10818077-i7"
+          dest="${HOME}/.m2/repository/org/robolectric/android-all-instrumented/${version}"
+          mkdir -p "$dest"
+          url="https://repo1.maven.org/maven2/org/robolectric/android-all-instrumented/${version}"
+          curl -fsSL --retry 5 -o "${dest}/android-all-instrumented-${version}.jar" \
+            "${url}/android-all-instrumented-${version}.jar"
+          curl -fsSL --retry 5 -o "${dest}/android-all-instrumented-${version}.pom" \
+            "${url}/android-all-instrumented-${version}.pom"
+
+      - name: Run host tests
+        run: |
+          touch local.properties
+          ./gradlew :composeApp:testAndroidHostTest --continue --stacktrace
+
+      - name: Run sync-worker tests
+        working-directory: sync-worker
+        run: npm ci && npm test
+
+      - name: Run the upstream guard
+        run: bash scripts/check-beta-upstream-guard.sh
+
+  ui-sim:
+    name: ui-sim
+    runs-on: macos-latest
+    timeout-minutes: 40
+    env:
+      GRADLE_OPTS: -Dfile.encoding=UTF-8
+      NUVIO_IOS_DISTRIBUTION: appstore
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Set up Android SDK
+        run: |
+          set -euo pipefail
+          if [[ -n "${ANDROID_HOME:-}" && -d "$ANDROID_HOME/platforms" ]]; then
+            exit 0
+          fi
+          sdk="${HOME}/android-sdk"
+          mkdir -p "${sdk}/cmdline-tools"
+          curl -fsSL -o /tmp/android-cmdtools.zip https://dl.google.com/android/repository/commandlinetools-mac-13114758_latest.zip
+          rm -rf /tmp/android-cmdtools
+          unzip -q /tmp/android-cmdtools.zip -d /tmp/android-cmdtools
+          rm -rf "${sdk}/cmdline-tools/latest"
+          mv /tmp/android-cmdtools/cmdline-tools "${sdk}/cmdline-tools/latest"
+          yes | "${sdk}/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$sdk" "platforms;android-37.1" || true
+          test -d "${sdk}/platforms"
+          echo "ANDROID_HOME=${sdk}" >> "$GITHUB_ENV"
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          if [[ -d /Applications/Xcode_27.1.app ]]; then
+            sudo xcode-select -s /Applications/Xcode_27.1.app/Contents/Developer
+          else
+            latest="$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+            sudo xcode-select -s "${latest}/Contents/Developer"
+          fi
+          xcodebuild -version
+
+      - name: Cache Kotlin Native
+        uses: actions/cache@v5
+        with:
+          path: ~/.konan
+          key: konan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('gradle/libs.versions.toml') }}
+          restore-keys: |
+            konan-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Compile simulator Kotlin and cinterop
+        run: ./gradlew :composeApp:compileKotlinIosSimulatorArm64 -Pnuvio.ios.distribution=appstore --stacktrace
+
+      - name: Prepare iOS dependencies
+        run: ./scripts/prepare-ios-dependencies.sh
+
+      - name: Run the Home and Settings smoke test
+        run: |
+          set -euo pipefail
+          udid="$(python3 - <<'PY'
+          import json, subprocess, sys
+          data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"]))
+          chosen = []
+          for runtime, devices in data.get("devices", {}).items():
+              if "iOS" not in runtime:
+                  continue
+              for device in devices:
+                  if device.get("name", "").startswith("iPhone") and device.get("isAvailable", True):
+                      chosen.append(device["udid"])
+          if not chosen:
+              sys.exit("no iPhone simulator")
+          print(chosen[-1])
+          PY
+          )"
+          xcrun simctl boot "$udid" || true
+          xcodebuild \
+            -project iosApp/iosApp.xcodeproj \
+            -scheme BetaSmokeUITests \
+            -destination "id=${udid}" \
+            -derivedDataPath build/ios-ui-sim \
+            -only-testing:BetaSmokeUITests \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY= \
+            test
+
+  name-scan:
+    name: name-scan
+    runs-on: ubuntu-latest
+    env:
+      NUVIO_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+      NUVIO_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      NUVIO_BASE_REF: ${{ github.base_ref || 'beta' }}
+      NUVIO_HEAD_REF: ${{ github.head_ref || github.ref_name }}
+      NUVIO_PR_TITLE: ${{ github.event.pull_request.title }}
+      NUVIO_PR_BODY: ${{ github.event.pull_request.body }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Scan the diff, commits, title, body, and branch
+        run: python3 scripts/check-repo-text.py
+
+      - name: Run the dummy-token negative test
+        run: python3 scripts/check-repo-text-test.py
+
+  secret-scan:
+    name: secret-scan
+    runs-on: ubuntu-latest
+    env:
+      NUVIO_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+      NUVIO_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      NUVIO_BASE_REF: ${{ github.base_ref || 'beta' }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Scan the commit range
+        run: bash scripts/check-secrets.sh
+
+      - name: Run the seeded-example negative test
+        run: bash scripts/check-secrets-test.sh
+
+  beta-gate:
+    name: beta-gate
+    needs: [build, tests, ui-sim, name-scan, secret-scan]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every gate
+        run: |
+          set -euo pipefail
+          test "${{ needs.build.result }}" = success
+          test "${{ needs.tests.result }}" = success
+          test "${{ needs.ui-sim.result }}" = success
+          test "${{ needs.name-scan.result }}" = success
+          test "${{ needs.secret-scan.result }}" = success
