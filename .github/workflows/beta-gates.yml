@@ -117,9 +117,10 @@ jobs:
   ui-sim:
     name: ui-sim
     runs-on: macos-latest
-    # A 40 minute cap was cancelled while Xcode was still compiling. One Kotlin
-    # compile happens inside xcodebuild, and the job allows 55 minutes.
-    timeout-minutes: 55
+    # The free runner was cancelled at 55 minutes while Xcode was still
+    # compiling. 90 minutes is the margin. Gradle and Kotlin/Native caches
+    # stay warm across runs.
+    timeout-minutes: 90
     env:
       GRADLE_OPTS: -Dfile.encoding=UTF-8
       NUVIO_IOS_DISTRIBUTION: appstore
@@ -135,6 +136,8 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-disabled: false
 
       - name: Set up Android SDK
         run: |
@@ -203,6 +206,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY= \
+            COMPILER_INDEX_STORE_ENABLE=NO \
             test
 
   name-scan:
