@@ -117,7 +117,9 @@ jobs:
   ui-sim:
     name: ui-sim
     runs-on: macos-latest
-    timeout-minutes: 40
+    # A 40 minute cap was cancelled while Xcode was still compiling. One Kotlin
+    # compile happens inside xcodebuild, and the job allows 55 minutes.
+    timeout-minutes: 55
     env:
       GRADLE_OPTS: -Dfile.encoding=UTF-8
       NUVIO_IOS_DISTRIBUTION: appstore
@@ -169,9 +171,6 @@ jobs:
           key: konan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('gradle/libs.versions.toml') }}
           restore-keys: |
             konan-${{ runner.os }}-${{ runner.arch }}-
-
-      - name: Compile simulator Kotlin and cinterop
-        run: ./gradlew :composeApp:compileKotlinIosSimulatorArm64 -Pnuvio.ios.distribution=appstore --stacktrace
 
       - name: Prepare iOS dependencies
         run: ./scripts/prepare-ios-dependencies.sh
