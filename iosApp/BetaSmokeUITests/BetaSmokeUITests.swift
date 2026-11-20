@@ -1,6 +1,11 @@
 import XCTest
 
 final class BetaSmokeUITests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        continueAfterFailure = false
+    }
+
     func testAppLaunchesHomeRendersAndSettingsOpens() {
         let app = XCUIApplication()
         app.launch()
@@ -21,80 +26,114 @@ final class BetaSmokeUITests: XCTestCase {
     }
 
     /// A fresh install shows the account screen, then an empty "Who's watching?" picker.
-    /// Tap through both. Create a profile only when the picker has none to select.
+    /// The guest button sits below the fold, so scroll until the tap can land.
     private func passLaunchGates(_ app: XCUIApplication) {
         let home = app.buttons["Home"]
         let guest = app.buttons["Continue Without Account"]
         if guest.waitForExistence(timeout: 25), !home.exists {
-            guest.tap()
+            var tries = 0
+            while guest.exists, tries < 3 {
+                tapOnScreen(app, guest)
+                let gone = XCTNSPredicateExpectation(
+                    predicate: NSPredicate(format: "exists == false"),
+                    object: guest
+                )
+                if XCTWaiter().wait(for: [gone], timeout: 8) == .completed {
+                    break
+                }
+                tries += 1
+            }
         }
 
-        let picker = app.staticTexts["Who's watching?"]
-        let pickerWithCurlyApostrophe = app.staticTexts["Who’s watching?"]
-        let pickerShown = picker.waitForExistence(timeout: 25) || pickerWithCurlyApostrophe.exists
-        if pickerShown, !home.exists {
-            openAProfile(app)
+        let deadline = Date().addingTimeInterval(30)
+        while Date() < deadline, !home.exists {
+            if app.buttons["Select profile"].exists {
+                tapOnScreen(app, app.buttons["Select profile"])
+                return
+            }
+            let pickerTitle = labeled(app, "Who's watching?")
+            let pickerTitleCurly = labeled(app, "Who’s watching?")
+            let addProfile = labeled(app, "Add Profile")
+            let profileName = app.textFields["Profile name"]
+            if pickerTitle.exists || pickerTitleCurly.exists || addProfile.exists || profileName.exists {
+                openAProfile(app)
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.4))
         }
     }
 
     private func openAProfile(_ app: XCUIApplication) {
         let existing = app.buttons["Select profile"]
         if existing.waitForExistence(timeout: 8) {
-            existing.tap()
+            tapOnScreen(app, existing)
             return
         }
+        createProfile(app)
+    }
 
-        let addProfile = tappable(app, "Add Profile", timeout: 10)
-        XCTAssertTrue(addProfile.exists, "Profile picker had no profile to open")
-        addProfile.tap()
+    private func createProfile(_ app: XCUIApplication) {
+        let addProfile = labeled(app, "Add Profile")
+        if addProfile.waitForExistence(timeout: 8) {
+            tapOnScreen(app, addProfile)
+        }
 
-        let name = profileNameField(app)
-        XCTAssertTrue(name.waitForExistence(timeout: 15), "Profile name field did not appear")
+        let name = profileNameField(app, wait: 15)
+        XCTAssertTrue(name.exists, "Profile name field did not appear")
         name.tap()
         name.typeText("Guest")
 
-        let create = tappable(app, "Create Profile", timeout: 10)
-        XCTAssertTrue(create.exists, "Create Profile was not available")
-        create.tap()
+        let create = labeled(app, "Create Profile")
+        XCTAssertTrue(create.waitForExistence(timeout: 10), "Create Profile was not available")
+        tapOnScreen(app, create)
 
         let created = app.buttons["Select profile"]
         if created.waitForExistence(timeout: 20) {
-            created.tap()
+            tapOnScreen(app, created)
             return
         }
-        let named = tappable(app, "Guest", timeout: 8)
-        XCTAssertTrue(named.exists, "New profile did not appear")
-        named.tap()
+        let named = labeled(app, "Guest")
+        XCTAssertTrue(named.waitForExistence(timeout: 8), "New profile did not appear")
+        tapOnScreen(app, named)
     }
 
-    private func profileNameField(_ app: XCUIApplication) -> XCUIElement {
+    private func profileNameField(_ app: XCUIApplication, wait: TimeInterval) -> XCUIElement {
         let labeledField = app.textFields["Profile name"]
-        if labeledField.waitForExistence(timeout: 8) {
+        if labeledField.waitForExistence(timeout: wait) {
             return labeledField
         }
         let labeledView = app.textViews["Profile name"]
-        if labeledView.waitForExistence(timeout: 4) {
+        if labeledView.waitForExistence(timeout: min(wait, 3)) {
             return labeledView
         }
-        if app.textFields.firstMatch.waitForExistence(timeout: 4) {
+        if app.textFields.firstMatch.waitForExistence(timeout: min(wait, 3)) {
             return app.textFields.firstMatch
         }
         return app.textViews.firstMatch
     }
 
-    private func tappable(_ app: XCUIApplication, _ label: String, timeout: TimeInterval) -> XCUIElement {
+    private func labeled(_ app: XCUIApplication, _ label: String) -> XCUIElement {
         let button = app.buttons[label]
-        if button.waitForExistence(timeout: timeout) {
+        if button.exists {
             return button
         }
-        let text = app.staticTexts[label]
-        if text.waitForExistence(timeout: 2) {
-            return text
-        }
-        let image = app.images[label]
-        if image.waitForExistence(timeout: 2) {
-            return image
-        }
         return app.descendants(matching: .any)[label]
+    }
+
+    /// Compose scroll views report an off-screen control with a hit point of {-1, -1}.
+    /// Drag the screen until the control is hittable, then tap it.
+    private func tapOnScreen(_ app: XCUIApplication, _ element: XCUIElement) {
+        var attempts = 0
+        while !element.isHittable, attempts < 8 {
+            let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
+            let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.30))
+            start.press(forDuration: 0.05, thenDragTo: end)
+            attempts += 1
+        }
+        if element.isHittable {
+            element.tap()
+            return
+        }
+        element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
     }
 }
