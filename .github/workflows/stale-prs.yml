@@ -1,0 +1,29 @@
+name: Close stale pull requests
+
+# Pull requests only. Issues are left alone. The branch is never deleted.
+on:
+  schedule:
+    - cron: "30 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  pull-requests: write
+
+jobs:
+  stale:
+    name: Close stale pull requests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Close pull requests with no activity for 14 days
+        uses: actions/stale@v11
+        with:
+          days-before-stale: -1
+          days-before-close: -1
+          days-before-issue-stale: -1
+          days-before-issue-close: -1
+          days-before-pr-stale: 14
+          days-before-pr-close: 0
+          stale-pr-message: "Closed after 14 days with no movement. The branch is kept; reopen it to continue."
+          close-pr-message: "Closed after 14 days with no movement. The branch is kept; reopen it to continue."
+          exempt-pr-labels: keep-open
+          delete-branch: false

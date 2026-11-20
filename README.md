@@ -5,7 +5,7 @@ Personal mirror of [luqmanfadlli/NuvioMobile-Enhanced](https://github.com/luqman
 This repository provides:
 - **TheIntroDB integration** (v3 API at `https://api.theintrodb.org/v3/media`) alongside the official introdb.app provider
 - **Unsigned IPA builds** for SideStore / AltStore / TrollStore (no Apple certificate required)
-- **Daily auto-sync** from upstream Enhanced `enhanced` branch. The schedule merges only; sideload publishing stays on Build Sideload IPA
+- **Weekly upstream sync** of the latest published release into `beta`. Sideload publishing stays on Build Sideload IPA
 
 > **Note:** This is not a GitHub fork because [SimSalabimse/NuvioMobile](https://github.com/SimSalabimse/NuvioMobile) already occupies the network fork slot for the original Nuvio repository.
 
@@ -25,11 +25,17 @@ Install it with SideStore, AltStore, or TrollStore. These tools sign on-device u
 
 **Actions → Build Test IPA** runs a validation build without creating a release or updating `store.json`. Useful for quick testing before a full sideload build.
 
+### Branches
+
+`beta` takes every change the gates mark green. `enhanced` moves only when a release is approved. The sync workflow does not push to `enhanced`.
+
+A pull request into `beta` runs `build` (iOS simulator compile and the Android/shared compile), `tests` (host tests, sync-worker tests, and the upstream guard), `ui-sim` (Home renders and Settings opens on an iPhone simulator), `name-scan`, and `secret-scan`. `beta-gate` passes only when all five do. GitHub shows the names as `beta-gates / build` and the same prefix for the others.
+
 ### Auto-Sync
 
-- **Daily at 06:17 UTC:** Merges upstream `luqmanfadlli/NuvioMobile-Enhanced@enhanced` into this repo. The schedule does not build an IPA.
-- **Manual trigger:** Actions → **Sync Enhanced upstream** (same merge).
-- **Publish:** Actions → **Build Sideload IPA**, after the release-train manifest check. That run creates the GitHub pre-release and refreshes `store.json`.
+- **Weekly:** The default branch stays `enhanced`, so the Monday cron does not run. The weekly check dispatches `sync-upstream.yml` on ref `beta`. That reads the latest published release of [luqmanfadlli/NuvioMobile-Enhanced](https://github.com/luqmanfadlli/NuvioMobile-Enhanced). Prereleases count. Drafts do not. The tag is compared with `docs/release/upstream-synced.txt` (currently `1.0.0`). A new tag is merged, not squashed, onto `upstream-sync/<tag>` from `beta`. A conflict opens one issue labelled `upstream-sync-conflict` and stops. A clean merge opens a pull request into `beta` and dispatches the beta gates on that branch, because a pull request opened with the built-in token does not start other workflows. The MPVKit pin, Auto Sync default and fallback, the playback lane, the heat gate, `sync-worker/`, and `store.json` must match `beta` unless the pull request body explains the path with `upstream-guard: <path>`.
+- **Manual dry run:** Actions → **Sync upstream release** → **dry_run**. That reports the comparison and does not open a branch, pull request, or issue.
+- **Publish:** Actions → **Build Sideload IPA**, after the release-train manifest check. That run creates the GitHub pre-release and refreshes `store.json`. The sync does not build an IPA.
 
 ### SideStore / AltStore Source
 
@@ -47,7 +53,7 @@ https://raw.githubusercontent.com/SimSalabimse/NuvioMobile-Enhanced/enhanced/sto
 
 ## What Enhanced adds
 
-Everything below is added on top of upstream Nuvio Mobile. Features that upstream has since adopted are dropped from this list.
+Everything below is added on top of upstream Nuvio Mobile. Features that upstream has since adopted are dropped from this list. Green changes land on `beta`. `enhanced` moves only on an approved release.
 
 ### Home
 

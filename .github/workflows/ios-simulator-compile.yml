@@ -1,10 +1,14 @@
 name: iOS simulator compile
 
-# Compiles the iOS simulator Kotlin target, including cinterop, on pull requests
-# into the 212-217 stack. No signing and no repository secrets.
+# Compiles the iOS simulator Kotlin target, including cinterop. No signing and
+# no repository secrets. beta pull requests and pushes are compiled by
+# beta-gates.yml, which calls this workflow, so the job below skips those
+# events and does not compile twice.
 on:
   pull_request:
     branches:
+      - beta
+      - enhanced
       - cursor/batch12-build207-e33c
       - sync/upstream-0.6.10
       - cursor/multi-segment-same-type-50bf
@@ -12,7 +16,18 @@ on:
       - cursor/build-214-standing-rules-e595
       - cursor/build-215-season-overview-9455
       - cursor/build-217-full-stack
+  push:
+    branches:
+      - beta
+      - enhanced
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      from_beta_gates:
+        description: Set by beta-gates so this compile still runs for a beta pull request.
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -24,6 +39,7 @@ concurrency:
 jobs:
   compile:
     name: Compile iOS simulator
+    if: ${{ inputs.from_beta_gates || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.base.ref != 'beta') || (github.event_name == 'push' && github.ref != 'refs/heads/beta') }}
     runs-on: xcode-27
     timeout-minutes: 150
     env:
