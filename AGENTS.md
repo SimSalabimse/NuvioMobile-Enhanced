@@ -28,3 +28,5 @@ Build cleanly and modularly with proper separation of concerns. Never bolt a fea
 A pull request into `beta` has these required checks: `build`, `tests`, `ui-sim`, `name-scan`, `secret-scan`, and the aggregate `beta-gate`. GitHub shows them as `beta-gates / <name>`.
 
 Upstream sync reads the latest published release of luqmanfadlli/NuvioMobile-Enhanced. Prereleases count and drafts do not. It compares that tag with `docs/release/upstream-synced.txt`. A new tag is merged, not squashed, onto `upstream-sync/<tag>` from `beta`. A conflict opens one issue labelled `upstream-sync-conflict` and stops. A clean merge opens a pull request into `beta`, then dispatches the beta gates on that branch. A pull request opened with the built-in token does not start other workflows by itself. `workflow_dispatch` with `dry_run` only reports the comparison.
+
+The default branch stays `enhanced`, so the Monday cron in `sync-upstream.yml` does not run. The weekly check dispatches `sync-upstream.yml` on ref `beta`.

@@ -33,10 +33,9 @@ A pull request into `beta` runs `build` (iOS simulator compile and the Android/s
 
 ### Auto-Sync
 
-- **Monday at 06:00 UTC:** Reads the latest published release of [luqmanfadlli/NuvioMobile-Enhanced](https://github.com/luqmanfadlli/NuvioMobile-Enhanced). Prereleases count. Drafts do not. The tag is compared with `docs/release/upstream-synced.txt` (currently `1.0.0`). A new tag is merged, not squashed, onto `upstream-sync/<tag>` from `beta`. A conflict opens one issue labelled `upstream-sync-conflict` and stops. A clean merge opens a pull request into `beta` and dispatches the beta gates on that branch, because a pull request opened with the built-in token does not start other workflows. The MPVKit pin, Auto Sync default and fallback, the playback lane, the heat gate, `sync-worker/`, and `store.json` must match `beta` unless the pull request body explains the path with `upstream-guard: <path>`.
+- **Weekly:** The default branch stays `enhanced`, so the Monday cron does not run. The weekly check dispatches `sync-upstream.yml` on ref `beta`. That reads the latest published release of [luqmanfadlli/NuvioMobile-Enhanced](https://github.com/luqmanfadlli/NuvioMobile-Enhanced). Prereleases count. Drafts do not. The tag is compared with `docs/release/upstream-synced.txt` (currently `1.0.0`). A new tag is merged, not squashed, onto `upstream-sync/<tag>` from `beta`. A conflict opens one issue labelled `upstream-sync-conflict` and stops. A clean merge opens a pull request into `beta` and dispatches the beta gates on that branch, because a pull request opened with the built-in token does not start other workflows. The MPVKit pin, Auto Sync default and fallback, the playback lane, the heat gate, `sync-worker/`, and `store.json` must match `beta` unless the pull request body explains the path with `upstream-guard: <path>`.
 - **Manual dry run:** Actions → **Sync upstream release** → **dry_run**. That reports the comparison and does not open a branch, pull request, or issue.
-- **Publish:** Actions → **Build Sideload IPA**, after the release-train manifest check. That run creates the GitHub pre-release and refreshes `store.json`. The Monday schedule does not build an IPA.
-- GitHub runs the Monday schedule from the repository default branch. The workflow file is on `beta`.
+- **Publish:** Actions → **Build Sideload IPA**, after the release-train manifest check. That run creates the GitHub pre-release and refreshes `store.json`. The sync does not build an IPA.
 
 ### SideStore / AltStore Source
 

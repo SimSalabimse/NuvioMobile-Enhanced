@@ -1,7 +1,7 @@
 name: Sync upstream release
 
-# Monday 06:00 UTC, plus a manual dry run. GitHub runs a schedule only from
-# the repository default branch. This file lives on beta.
+# The default branch stays enhanced, so the Monday cron below does not run.
+# The weekly check dispatches this file on ref beta. dry_run reports only.
 on:
   schedule:
     - cron: "0 6 * * 1"
@@ -26,6 +26,8 @@ jobs:
   sync:
     name: Sync upstream release
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - name: Check out source
         uses: actions/checkout@v6
