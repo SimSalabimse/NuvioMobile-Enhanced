@@ -22,6 +22,12 @@ on:
       - enhanced
   workflow_dispatch:
   workflow_call:
+    inputs:
+      from_beta_gates:
+        description: Set by beta-gates so this compile still runs for a beta pull request.
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -33,7 +39,7 @@ concurrency:
 jobs:
   compile:
     name: Compile iOS simulator
-    if: ${{ github.event_name == 'workflow_call' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.base.ref != 'beta') || (github.event_name == 'push' && github.ref != 'refs/heads/beta') }}
+    if: ${{ inputs.from_beta_gates || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.base.ref != 'beta') || (github.event_name == 'push' && github.ref != 'refs/heads/beta') }}
     runs-on: xcode-27
     timeout-minutes: 150
     env:

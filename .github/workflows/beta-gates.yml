@@ -22,6 +22,8 @@ jobs:
   compile-ios:
     name: compile-ios
     uses: ./.github/workflows/ios-simulator-compile.yml
+    with:
+      from_beta_gates: true
 
   compile-android:
     name: compile-android
