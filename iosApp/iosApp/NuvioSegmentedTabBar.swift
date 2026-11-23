@@ -4,6 +4,7 @@ import UIKit
 @available(iOS 26.0, *)
 struct NuvioSegmentedTabBarItem {
     let title: String
+    let identifier: String
     let baseImage: UIImage
     let accentImage: UIImage
     let tintsBaseImage: Bool
@@ -268,6 +269,8 @@ final class NuvioTabSegmentedControl: UISegmentedControl {
 
     private static let baseViewTag = 8_801
     private static let accentViewTag = 8_802
+    private var accessTitles: [String] = []
+    private var accessIdentifiers: [String] = []
     private var baseViews: [NuvioTabItemContentView] = []
     private var accentViews: [NuvioTabItemContentView] = []
     private var originalIndex: Int?
@@ -312,6 +315,8 @@ final class NuvioTabSegmentedControl: UISegmentedControl {
     }
 
     func setItems(_ items: [NuvioSegmentedTabBarItem], horizontal: Bool) {
+        accessTitles = items.map(\.title)
+        accessIdentifiers = items.map(\.identifier)
         let keepIndex = selectedSegmentIndex
         if numberOfSegments != items.count {
             removeAllSegments()
@@ -353,6 +358,7 @@ final class NuvioTabSegmentedControl: UISegmentedControl {
         }
         hideLabels(in: self)
         injectItemViews()
+        applySegmentAccessibility()
         wakeDisplayLink()
     }
 
@@ -396,6 +402,18 @@ final class NuvioTabSegmentedControl: UISegmentedControl {
             label.isHidden = true
         }
         view.subviews.forEach(hideLabels(in:))
+    }
+
+    private func applySegmentAccessibility() {
+        let segments = segmentViews()
+        guard segments.count == accessIdentifiers.count, segments.count == accessTitles.count else { return }
+        for (index, segment) in segments.enumerated() {
+            segment.isAccessibilityElement = true
+            segment.accessibilityLabel = accessTitles[index]
+            segment.accessibilityIdentifier = accessIdentifiers[index]
+            segment.accessibilityTraits = index == selectedSegmentIndex ? [.button, .selected] : .button
+        }
+        accessibilityElements = segments
     }
 
     private func injectItemViews() {
@@ -626,6 +644,7 @@ final class NuvioTabItemContentView: UIView {
         super.init(frame: .zero)
         isOpaque = false
         isUserInteractionEnabled = false
+        isAccessibilityElement = false
         contentMode = .redraw
     }
 
