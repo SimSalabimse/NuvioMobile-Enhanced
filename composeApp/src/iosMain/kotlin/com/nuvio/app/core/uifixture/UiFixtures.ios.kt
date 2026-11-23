@@ -21,6 +21,12 @@ import platform.Foundation.stringWithContentsOfFile
  * [Platform.isDebugBinary] is false, so Release never reads arguments or the environment.
  */
 @OptIn(ExperimentalNativeApi::class)
+@OptIn(ExperimentalNativeApi::class)
+actual fun uiTestSkipsOnboarding(): Boolean = skipsOnboardingForLaunch(Platform.isDebugBinary) {
+    NSProcessInfo.processInfo.arguments.map { it.toString() }
+}
+
+@OptIn(ExperimentalNativeApi::class)
 actual fun activeUiFixture(): UiFixture? {
     val decision = decideUiFixture(Platform.isDebugBinary) {
         val raw = readLaunchRaw()

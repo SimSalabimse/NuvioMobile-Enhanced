@@ -12,6 +12,7 @@ import com.nuvio.app.features.profiles.RememberedPinKind
 import com.nuvio.app.features.profiles.StartupNetworkOutcome
 import com.nuvio.app.core.uifixture.UiFixtureInstaller
 import com.nuvio.app.core.uifixture.uiFixturesActive
+import com.nuvio.app.core.uifixture.uiTestSkipsOnboarding
 import com.nuvio.app.features.profiles.decideFirstFrame
 import kotlinx.atomicfu.locks.SynchronizedObject
 import kotlinx.atomicfu.locks.synchronized
@@ -27,8 +28,8 @@ internal object SynchronousLaunch {
     fun prepare(): FirstFrameDecision = synchronized(lock) {
         if (prepared) return@synchronized decision
         installAutomationFromPlatform()
-        if (uiFixturesActive()) {
-            UiFixtureInstaller.install()
+        if (uiFixturesActive() || uiTestSkipsOnboarding()) {
+            if (uiFixturesActive()) UiFixtureInstaller.install()
             decision = FirstFrameDecision(
                 destination = FirstFrameDestination.Home,
                 pickerWasFirstFrame = false,
