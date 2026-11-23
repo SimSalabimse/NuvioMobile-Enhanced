@@ -93,14 +93,24 @@ jobs:
       - name: Prefetch Robolectric
         run: |
           set -euo pipefail
-          version="14-robolectric-10818077-i7"
-          dest="${HOME}/.m2/repository/org/robolectric/android-all-instrumented/${version}"
-          mkdir -p "$dest"
-          url="https://repo1.maven.org/maven2/org/robolectric/android-all-instrumented/${version}"
-          curl -fsSL --retry 5 -o "${dest}/android-all-instrumented-${version}.jar" \
-            "${url}/android-all-instrumented-${version}.jar"
-          curl -fsSL --retry 5 -o "${dest}/android-all-instrumented-${version}.pom" \
-            "${url}/android-all-instrumented-${version}.pom"
+          # API 26, 28, and 34. A live fetch during the suite failed the class
+          # setup of the tests that use the older images.
+          versions=(
+            8.1.0-robolectric-4611349-i7
+            9-robolectric-4913185-2-i7
+            14-robolectric-10818077-i7
+          )
+          for version in "${versions[@]}"; do
+            dest="${HOME}/.m2/repository/org/robolectric/android-all-instrumented/${version}"
+            mkdir -p "$dest"
+            url="https://repo1.maven.org/maven2/org/robolectric/android-all-instrumented/${version}"
+            curl -fsSL --retry 5 --retry-all-errors --connect-timeout 20 --max-time 180 \
+              -o "${dest}/android-all-instrumented-${version}.jar" \
+              "${url}/android-all-instrumented-${version}.jar"
+            curl -fsSL --retry 5 --retry-all-errors --connect-timeout 20 --max-time 60 \
+              -o "${dest}/android-all-instrumented-${version}.pom" \
+              "${url}/android-all-instrumented-${version}.pom"
+          done
 
       - name: Run host tests
         run: |

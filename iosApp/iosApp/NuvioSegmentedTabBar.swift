@@ -535,6 +535,15 @@ final class NuvioTabSegmentedControl: UISegmentedControl {
         CATransaction.commit()
     }
 
+    // A tap lands on a segment. Returning self makes that tap run the tracking
+    // below, which is what commits the selection.
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard isUserInteractionEnabled, !isHidden, alpha > 0.01, self.point(inside: point, with: event) else {
+            return nil
+        }
+        return self
+    }
+
     // MARK: Touch handling
 
     private func segmentIndex(at point: CGPoint) -> Int {
@@ -585,6 +594,7 @@ final class NuvioTabSegmentedControl: UISegmentedControl {
                 onReselect(selectedSegmentIndex)
             }
         }
+        applySegmentAccessibility()
         originalIndex = nil
         isTrackingTouch = false
         super.touchesEnded(touches, with: event)
