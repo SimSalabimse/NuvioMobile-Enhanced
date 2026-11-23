@@ -93,24 +93,19 @@ jobs:
       - name: Prefetch Robolectric
         run: |
           set -euo pipefail
-          # API 26, 28, and 34. A live fetch during the suite failed the class
-          # setup of the tests that use the older images.
-          versions=(
-            8.1.0-robolectric-4611349-i7
-            9-robolectric-4913185-2-i7
-            14-robolectric-10818077-i7
-          )
-          for version in "${versions[@]}"; do
-            dest="${HOME}/.m2/repository/org/robolectric/android-all-instrumented/${version}"
-            mkdir -p "$dest"
-            url="https://repo1.maven.org/maven2/org/robolectric/android-all-instrumented/${version}"
-            curl -fsSL --retry 5 --retry-all-errors --connect-timeout 20 --max-time 180 \
-              -o "${dest}/android-all-instrumented-${version}.jar" \
-              "${url}/android-all-instrumented-${version}.jar"
-            curl -fsSL --retry 5 --retry-all-errors --connect-timeout 20 --max-time 60 \
-              -o "${dest}/android-all-instrumented-${version}.pom" \
-              "${url}/android-all-instrumented-${version}.pom"
-          done
+          version="14-robolectric-10818077-i7"
+          dest="${HOME}/.m2/repository/org/robolectric/android-all-instrumented/${version}"
+          mkdir -p "$dest"
+          url="https://repo1.maven.org/maven2/org/robolectric/android-all-instrumented/${version}"
+          # A 429's Retry-After waited out the whole job. Cap the retries.
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 --retry-max-time 60 \
+            --connect-timeout 20 --max-time 120 \
+            -o "${dest}/android-all-instrumented-${version}.jar" \
+            "${url}/android-all-instrumented-${version}.jar"
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 --retry-max-time 30 \
+            --connect-timeout 20 --max-time 30 \
+            -o "${dest}/android-all-instrumented-${version}.pom" \
+            "${url}/android-all-instrumented-${version}.pom"
 
       - name: Run host tests
         run: |
@@ -188,6 +183,15 @@ jobs:
 
       - name: Prepare iOS dependencies
         run: ./scripts/prepare-ios-dependencies.sh
+
+      - name: Warm the Gradle wrapper
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5; do
+            ./gradlew --version && exit 0
+            sleep $((attempt * 5))
+          done
+          exit 1
 
       - name: Run the Home and Settings smoke test
         run: |
