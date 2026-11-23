@@ -383,7 +383,8 @@ internal fun AppGate(
     ) {
         if (!renderMainContent) {
             onMainContentVisibleChanged?.invoke(
-                gateScreen == AppGateScreen.Main.name && externalMainContentReady,
+                com.nuvio.app.core.uifixture.uiTestSkipsOnboarding() ||
+                    (gateScreen == AppGateScreen.Main.name && externalMainContentReady),
             )
         }
     }
@@ -612,10 +613,13 @@ internal fun AppGate(
                 launchOverlayState.isIdle &&
                 !launchOverlayState.currentState
         reportAppReady(
-            gateScreen == AppGateScreen.Main.name &&
-                externalMainContentReady &&
-                !profileSelectionLoading &&
-                overlaysHidden,
+            com.nuvio.app.core.uifixture.uiTestSkipsOnboarding() ||
+                (
+                    gateScreen == AppGateScreen.Main.name &&
+                        externalMainContentReady &&
+                        !profileSelectionLoading &&
+                        overlaysHidden
+                    ),
         )
     }
 
