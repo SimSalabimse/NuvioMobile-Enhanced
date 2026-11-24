@@ -132,7 +132,11 @@ internal fun AppGate(
     }
 
     LaunchedEffect(Unit) {
-        if (!ownsAppRuntime || com.nuvio.app.core.uifixture.uiFixturesActive()) return@LaunchedEffect
+        if (
+            !ownsAppRuntime ||
+            com.nuvio.app.core.uifixture.uiFixturesActive() ||
+            com.nuvio.app.core.uifixture.uiTestSkipsOnboarding()
+        ) return@LaunchedEffect
         InAppLogger.info("App", "Application started")
         AuthRepository.initialize()
     }
@@ -141,7 +145,10 @@ internal fun AppGate(
         if (!ownsAppRuntime) return@LaunchedEffect
         InAppLogger.info("App/Runtime", "Starting network/profile/avatar services")
         NetworkStatusRepository.ensureStarted()
-        if (!com.nuvio.app.core.uifixture.uiFixturesActive()) {
+        if (
+            !com.nuvio.app.core.uifixture.uiFixturesActive() &&
+            !com.nuvio.app.core.uifixture.uiTestSkipsOnboarding()
+        ) {
             MemberAccessRepository.ensureStarted()
             ProfileRepository.loadCachedProfiles()
         }
@@ -376,7 +383,8 @@ internal fun AppGate(
     ) {
         if (!renderMainContent) {
             onMainContentVisibleChanged?.invoke(
-                gateScreen == AppGateScreen.Main.name && externalMainContentReady,
+                com.nuvio.app.core.uifixture.uiTestSkipsOnboarding() ||
+                    (gateScreen == AppGateScreen.Main.name && externalMainContentReady),
             )
         }
     }
@@ -501,7 +509,10 @@ internal fun AppGate(
         profileState.hasEverSelectedProfile,
         profileState.activeProfile?.profileIndex,
     ) {
-        if (com.nuvio.app.core.uifixture.uiFixturesActive()) {
+        if (
+            com.nuvio.app.core.uifixture.uiFixturesActive() ||
+            com.nuvio.app.core.uifixture.uiTestSkipsOnboarding()
+        ) {
             if (gateScreen != AppGateScreen.Main.name) gateScreen = AppGateScreen.Main.name
             return@LaunchedEffect
         }
@@ -602,10 +613,13 @@ internal fun AppGate(
                 launchOverlayState.isIdle &&
                 !launchOverlayState.currentState
         reportAppReady(
-            gateScreen == AppGateScreen.Main.name &&
-                externalMainContentReady &&
-                !profileSelectionLoading &&
-                overlaysHidden,
+            com.nuvio.app.core.uifixture.uiTestSkipsOnboarding() ||
+                (
+                    gateScreen == AppGateScreen.Main.name &&
+                        externalMainContentReady &&
+                        !profileSelectionLoading &&
+                        overlaysHidden
+                    ),
         )
     }
 

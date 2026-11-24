@@ -1,9 +1,25 @@
+import ObjectiveC
 import SwiftUI
 import UIKit
+
+/// The smoke test is the only launch that may reroute tab touches. Release,
+/// and a debug launch without the argument, keep the normal hit path.
+private enum NuvioUiTestLaunch {
+    static let skipOnboardingArgument = "-uiTestSkipOnboarding"
+
+    static var skipsOnboarding: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.arguments.contains(skipOnboardingArgument)
+        #else
+        false
+        #endif
+    }
+}
 
 @available(iOS 26.0, *)
 struct NuvioSegmentedTabBarItem {
     let title: String
+    let identifier: String
     let baseImage: UIImage
     let accentImage: UIImage
     let tintsBaseImage: Bool
@@ -146,6 +162,18 @@ final class NuvioSegmentedTabBarView: UIView {
         collapsedLongPress.isEnabled = false
     }
 
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard NuvioUiTestLaunch.skipsOnboarding else {
+            return super.hitTest(point, with: event)
+        }
+        guard !isHidden, alpha > 0.01, isUserInteractionEnabled else { return nil }
+        let controlPoint = convert(point, to: segmentedControl)
+        if segmentedControl.alpha > 0.01, segmentedControl.point(inside: controlPoint, with: event) {
+            return segmentedControl.hitTest(controlPoint, with: event)
+        }
+        return super.hitTest(point, with: event)
+    }
+
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
@@ -268,6 +296,10 @@ final class NuvioTabSegmentedControl: UISegmentedControl {
 
     private static let baseViewTag = 8_801
     private static let accentViewTag = 8_802
+    private var accessTitles: [String] = []
+    private var accessIdentifiers: [String] = []
+    private var accessButtons: [UIButton] = []
+    private var lastTouchState = "idle"
     private var baseViews: [NuvioTabItemContentView] = []
     private var accentViews: [NuvioTabItemContentView] = []
     private var originalIndex: Int?
@@ -312,6 +344,8 @@ final class NuvioTabSegmentedControl: UISegmentedControl {
     }
 
     func setItems(_ items: [NuvioSegmentedTabBarItem], horizontal: Bool) {
+        accessTitles = items.map(\.title)
+        accessIdentifiers = items.map(\.identifier)
         let keepIndex = selectedSegmentIndex
         if numberOfSegments != items.count {
             removeAllSegments()
@@ -353,6 +387,7 @@ final class NuvioTabSegmentedControl: UISegmentedControl {
         }
         hideLabels(in: self)
         injectItemViews()
+        applySegmentAccessibility()
         wakeDisplayLink()
     }
 
@@ -365,6 +400,9 @@ final class NuvioTabSegmentedControl: UISegmentedControl {
         super.didMoveToWindow()
         if window != nil {
             startDisplayLink()
+            #if DEBUG
+            NuvioUiTestTapForwarder.install(on: self)
+            #endif
         } else {
             displayLink?.invalidate()
             displayLink = nil
@@ -396,6 +434,60 @@ final class NuvioTabSegmentedControl: UISegmentedControl {
             label.isHidden = true
         }
         view.subviews.forEach(hideLabels(in:))
+    }
+
+    private func applySegmentAccessibility() {
+        let segments = segmentViews()
+        guard segments.count == accessIdentifiers.count, segments.count == accessTitles.count else { return }
+        if accessButtons.count != segments.count {
+            accessButtons.forEach { $0.removeFromSuperview() }
+            accessButtons = segments.indices.map { index in
+                let button = NuvioTabAccessButton(type: .custom)
+                button.tag = index
+                button.control = self
+                button.backgroundColor = .clear
+                button.isUserInteractionEnabled = false
+                addSubview(button)
+                return button
+            }
+        }
+        for (index, segment) in segments.enumerated() {
+            // The private segment does not keep the selected trait XCTest reads.
+            segment.isAccessibilityElement = false
+            segment.accessibilityIdentifier = nil
+            let button = accessButtons[index]
+            let frame = segment.convert(segment.bounds, to: self)
+            if button.frame != frame {
+                button.frame = frame
+            }
+            button.isAccessibilityElement = true
+            button.isUserInteractionEnabled = NuvioUiTestLaunch.skipsOnboarding
+            button.accessibilityLabel = accessTitles[index]
+            button.accessibilityIdentifier = accessIdentifiers[index]
+            button.accessibilityValue = NuvioUiTestLaunch.skipsOnboarding ? lastTouchState : nil
+            button.isSelected = index == selectedSegmentIndex
+        }
+    }
+
+    override func accessibilityElementCount() -> Int {
+        accessButtons.isEmpty ? super.accessibilityElementCount() : accessButtons.count
+    }
+
+    override func accessibilityElement(at index: Int) -> Any? {
+        guard accessButtons.indices.contains(index) else {
+            return super.accessibilityElement(at: index)
+        }
+        let button = accessButtons[index]
+        button.isSelected = index == selectedSegmentIndex
+        button.accessibilityValue = NuvioUiTestLaunch.skipsOnboarding ? lastTouchState : nil
+        return button
+    }
+
+    override func index(ofAccessibilityElement element: Any) -> Int {
+        guard let button = element as? UIButton, let index = accessButtons.firstIndex(of: button) else {
+            return super.index(ofAccessibilityElement: element)
+        }
+        return index
     }
 
     private func injectItemViews() {
@@ -517,6 +609,39 @@ final class NuvioTabSegmentedControl: UISegmentedControl {
         CATransaction.commit()
     }
 
+    // The smoke test's buttons sit on the segments. Only that launch may claim
+    // the hit; every other launch uses the control's own segment tracking.
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard NuvioUiTestLaunch.skipsOnboarding else {
+            return super.hitTest(point, with: event)
+        }
+        guard isUserInteractionEnabled, !isHidden, alpha > 0.01, self.point(inside: point, with: event) else {
+            return nil
+        }
+        for button in accessButtons.reversed() where button.isUserInteractionEnabled && !button.isHidden && button.alpha > 0.01 {
+            let local = convert(point, to: button)
+            if button.point(inside: local, with: event) {
+                return button
+            }
+        }
+        return self
+    }
+
+    func commitTouch(at point: CGPoint) {
+        let index = segmentIndex(at: point)
+        lastTouchState = "event-\(index)"
+        if index != selectedSegmentIndex {
+            selectedSegmentIndex = index
+            onSelect(index)
+        }
+        applySegmentAccessibility()
+    }
+
+    func noteMissedTouch() {
+        lastTouchState = "outside"
+        applySegmentAccessibility()
+    }
+
     // MARK: Touch handling
 
     private func segmentIndex(at point: CGPoint) -> Int {
@@ -535,8 +660,22 @@ final class NuvioTabSegmentedControl: UISegmentedControl {
         feedback.prepare()
     }
 
+    func forwardTouch(_ touches: Set<UITouch>, event: UIEvent?, phase: NuvioTabTouchPhase) {
+        switch phase {
+        case .began:
+            touchesBegan(touches, with: event)
+        case .moved:
+            touchesMoved(touches, with: event)
+        case .ended:
+            touchesEnded(touches, with: event)
+        case .cancelled:
+            touchesCancelled(touches, with: event)
+        }
+    }
+
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         isTrackingTouch = true
+        lastTouchState = "began"
         wakeDisplayLink()
         if let touch = touches.first, movesLensOnTouchDown {
             originalIndex = selectedSegmentIndex
@@ -560,6 +699,7 @@ final class NuvioTabSegmentedControl: UISegmentedControl {
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         wakeDisplayLink()
+        lastTouchState = "ended-\(selectedSegmentIndex)"
         if movesLensOnTouchDown, let originalIndex {
             if selectedSegmentIndex != originalIndex {
                 onSelect(selectedSegmentIndex)
@@ -567,6 +707,7 @@ final class NuvioTabSegmentedControl: UISegmentedControl {
                 onReselect(selectedSegmentIndex)
             }
         }
+        applySegmentAccessibility()
         originalIndex = nil
         isTrackingTouch = false
         super.touchesEnded(touches, with: event)
@@ -574,6 +715,7 @@ final class NuvioTabSegmentedControl: UISegmentedControl {
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
         wakeDisplayLink()
+        lastTouchState = "cancelled"
         if movesLensOnTouchDown, let originalIndex {
             selectedSegmentIndex = originalIndex
         }
@@ -606,7 +748,92 @@ private final class NuvioDisplayLinkProxy: NSObject {
     }
 }
 
+#if DEBUG
 @available(iOS 26.0, *)
+private enum NuvioUiTestTapForwarder {
+    static var installed = false
+    static weak var control: NuvioTabSegmentedControl?
+
+    static func install(on control: NuvioTabSegmentedControl) {
+        self.control = control
+        guard !installed, NuvioUiTestLaunch.skipsOnboarding else { return }
+        guard
+            let original = class_getInstanceMethod(UIApplication.self, #selector(UIApplication.sendEvent(_:))),
+            let swizzled = class_getInstanceMethod(UIApplication.self, #selector(UIApplication.nuvio_sendEvent(_:)))
+        else { return }
+        method_exchangeImplementations(original, swizzled)
+        installed = true
+    }
+
+    static func note(_ touch: UITouch) {
+        guard let control, touch.phase == .ended || touch.phase == .cancelled else { return }
+        let point = touch.location(in: control)
+        if control.point(inside: point, with: nil) {
+            control.commitTouch(at: point)
+        } else {
+            control.noteMissedTouch()
+        }
+    }
+}
+
+extension UIApplication {
+    @objc func nuvio_sendEvent(_ event: UIEvent) {
+        nuvio_sendEvent(event)
+        if #available(iOS 26.0, *), let touch = event.allTouches?.first {
+            NuvioUiTestTapForwarder.note(touch)
+        }
+    }
+}
+#endif
+
+@available(iOS 26.0, *)
+enum NuvioTabTouchPhase {
+    case began, moved, ended, cancelled
+}
+
+/// XCTest delivers the press to this button. It is not the hit target for a finger:
+/// the bar's hitTest returns the segmented control so the lens can still follow a drag.
+@available(iOS 26.0, *)
+final class NuvioTabAccessButton: UIButton {
+    weak var control: NuvioTabSegmentedControl?
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard NuvioUiTestLaunch.skipsOnboarding else {
+            super.touchesBegan(touches, with: event)
+            return
+        }
+        control?.forwardTouch(touches, event: event, phase: .began)
+        super.touchesBegan(touches, with: event)
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard NuvioUiTestLaunch.skipsOnboarding else {
+            super.touchesMoved(touches, with: event)
+            return
+        }
+        control?.forwardTouch(touches, event: event, phase: .moved)
+        super.touchesMoved(touches, with: event)
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard NuvioUiTestLaunch.skipsOnboarding else {
+            super.touchesEnded(touches, with: event)
+            return
+        }
+        control?.forwardTouch(touches, event: event, phase: .ended)
+        super.touchesEnded(touches, with: event)
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard NuvioUiTestLaunch.skipsOnboarding else {
+            super.touchesCancelled(touches, with: event)
+            return
+        }
+        control?.forwardTouch(touches, event: event, phase: .cancelled)
+        super.touchesCancelled(touches, with: event)
+    }
+}
+
 final class NuvioTabItemContentView: UIView {
     private let title: String
     private let image: UIImage
@@ -626,6 +853,7 @@ final class NuvioTabItemContentView: UIView {
         super.init(frame: .zero)
         isOpaque = false
         isUserInteractionEnabled = false
+        isAccessibilityElement = false
         contentMode = .redraw
     }
 

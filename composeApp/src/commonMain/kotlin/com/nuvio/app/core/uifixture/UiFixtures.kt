@@ -208,6 +208,20 @@ expect fun activeUiFixture(): UiFixture?
 
 internal expect fun startConnectivityFixturePoller()
 
+/** Launch argument the beta smoke UI test passes. A normal launch never includes it. */
+const val UI_TEST_SKIP_ONBOARDING_ARGUMENT = "-uiTestSkipOnboarding"
+
+/**
+ * True only for a debug binary launched with [UI_TEST_SKIP_ONBOARDING_ARGUMENT].
+ * A release binary does not call [readArguments].
+ */
+fun skipsOnboardingForLaunch(isDebugBinary: Boolean, readArguments: () -> List<String>): Boolean {
+    if (!isDebugBinary) return false
+    return readArguments().any { it == UI_TEST_SKIP_ONBOARDING_ARGUMENT }
+}
+
+expect fun uiTestSkipsOnboarding(): Boolean
+
 private val capturedFixture: UiFixture? by lazy { activeUiFixture() }
 
 fun currentUiFixture(): UiFixture? = UiFixtureSession.testFixture ?: capturedFixture
