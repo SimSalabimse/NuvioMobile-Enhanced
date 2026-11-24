@@ -421,9 +421,9 @@ final class NuvioTabSegmentedControl: UISegmentedControl {
         if accessButtons.count != segments.count {
             accessButtons.forEach { $0.removeFromSuperview() }
             accessButtons = segments.indices.map { index in
-                let button = UIButton(type: .custom)
+                let button = NuvioTabAccessButton(type: .custom)
                 button.tag = index
-                button.isUserInteractionEnabled = false
+                button.control = self
                 button.backgroundColor = .clear
                 addSubview(button)
                 return button
@@ -613,6 +613,19 @@ final class NuvioTabSegmentedControl: UISegmentedControl {
         feedback.prepare()
     }
 
+    func forwardTouch(_ touches: Set<UITouch>, event: UIEvent?, phase: NuvioTabTouchPhase) {
+        switch phase {
+        case .began:
+            touchesBegan(touches, with: event)
+        case .moved:
+            touchesMoved(touches, with: event)
+        case .ended:
+            touchesEnded(touches, with: event)
+        case .cancelled:
+            touchesCancelled(touches, with: event)
+        }
+    }
+
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         isTrackingTouch = true
         lastTouchState = "began"
@@ -689,6 +702,36 @@ private final class NuvioDisplayLinkProxy: NSObject {
 }
 
 @available(iOS 26.0, *)
+enum NuvioTabTouchPhase {
+    case began, moved, ended, cancelled
+}
+
+/// XCTest delivers the press to this button. It is not the hit target for a finger:
+/// the bar's hitTest returns the segmented control so the lens can still follow a drag.
+final class NuvioTabAccessButton: UIButton {
+    weak var control: NuvioTabSegmentedControl?
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        control?.forwardTouch(touches, event: event, phase: .began)
+        super.touchesBegan(touches, with: event)
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        control?.forwardTouch(touches, event: event, phase: .moved)
+        super.touchesMoved(touches, with: event)
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        control?.forwardTouch(touches, event: event, phase: .ended)
+        super.touchesEnded(touches, with: event)
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        control?.forwardTouch(touches, event: event, phase: .cancelled)
+        super.touchesCancelled(touches, with: event)
+    }
+}
+
 final class NuvioTabItemContentView: UIView {
     private let title: String
     private let image: UIImage

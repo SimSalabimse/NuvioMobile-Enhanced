@@ -202,6 +202,18 @@ private final class WeakGestureDelegate {
     }
 }
 
+/// A full-screen host whose `point(inside:)` is false once the shell is ready.
+/// Turning interaction off is not enough: the view still contains the point, and the
+/// stack then drops the touch instead of giving it to the tab bar.
+final class NuvioHostView: UIView {
+    var passesTouchesThrough = false
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        if passesTouchesThrough { return false }
+        return super.point(inside: point, with: event)
+    }
+}
+
 final class RootComposeViewController: UIViewController {
     private let contentController: UIViewController
     private let backgroundColor: UIColor
@@ -241,6 +253,10 @@ final class RootComposeViewController: UIViewController {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func loadView() {
+        view = NuvioHostView()
     }
 
     override func viewDidLoad() {
@@ -1566,8 +1582,10 @@ struct AppGateComposeView: UIViewControllerRepresentable {
 
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
         // The gate sits above the tab bar. Once the shell is ready it must not keep the taps.
+        let passTouches = appCoordinator.isAppReady
         uiViewController.view.accessibilityIdentifier = "nuvio-app-gate"
-        uiViewController.view.isUserInteractionEnabled = !appCoordinator.isAppReady
+        uiViewController.view.isUserInteractionEnabled = !passTouches
+        (uiViewController.view as? NuvioHostView)?.passesTouchesThrough = passTouches
     }
 }
 
