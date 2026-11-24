@@ -2,6 +2,20 @@ import ObjectiveC
 import SwiftUI
 import UIKit
 
+/// The smoke test is the only launch that may reroute tab touches. Release,
+/// and a debug launch without the argument, keep the normal hit path.
+private enum NuvioUiTestLaunch {
+    static let skipOnboardingArgument = "-uiTestSkipOnboarding"
+
+    static var skipsOnboarding: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.arguments.contains(skipOnboardingArgument)
+        #else
+        false
+        #endif
+    }
+}
+
 @available(iOS 26.0, *)
 struct NuvioSegmentedTabBarItem {
     let title: String
@@ -149,6 +163,9 @@ final class NuvioSegmentedTabBarView: UIView {
     }
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard NuvioUiTestLaunch.skipsOnboarding else {
+            return super.hitTest(point, with: event)
+        }
         guard !isHidden, alpha > 0.01, isUserInteractionEnabled else { return nil }
         let controlPoint = convert(point, to: segmentedControl)
         if segmentedControl.alpha > 0.01, segmentedControl.point(inside: controlPoint, with: event) {
@@ -429,6 +446,7 @@ final class NuvioTabSegmentedControl: UISegmentedControl {
                 button.tag = index
                 button.control = self
                 button.backgroundColor = .clear
+                button.isUserInteractionEnabled = false
                 addSubview(button)
                 return button
             }
@@ -443,9 +461,10 @@ final class NuvioTabSegmentedControl: UISegmentedControl {
                 button.frame = frame
             }
             button.isAccessibilityElement = true
+            button.isUserInteractionEnabled = NuvioUiTestLaunch.skipsOnboarding
             button.accessibilityLabel = accessTitles[index]
             button.accessibilityIdentifier = accessIdentifiers[index]
-            button.accessibilityValue = lastTouchState
+            button.accessibilityValue = NuvioUiTestLaunch.skipsOnboarding ? lastTouchState : nil
             button.isSelected = index == selectedSegmentIndex
         }
     }
@@ -460,7 +479,7 @@ final class NuvioTabSegmentedControl: UISegmentedControl {
         }
         let button = accessButtons[index]
         button.isSelected = index == selectedSegmentIndex
-        button.accessibilityValue = lastTouchState
+        button.accessibilityValue = NuvioUiTestLaunch.skipsOnboarding ? lastTouchState : nil
         return button
     }
 
@@ -590,13 +609,16 @@ final class NuvioTabSegmentedControl: UISegmentedControl {
         CATransaction.commit()
     }
 
-    // A tap lands on a segment. Returning self makes that tap run the tracking
-    // below, which is what commits the selection.
+    // The smoke test's buttons sit on the segments. Only that launch may claim
+    // the hit; every other launch uses the control's own segment tracking.
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard NuvioUiTestLaunch.skipsOnboarding else {
+            return super.hitTest(point, with: event)
+        }
         guard isUserInteractionEnabled, !isHidden, alpha > 0.01, self.point(inside: point, with: event) else {
             return nil
         }
-        for button in accessButtons.reversed() where !button.isHidden && button.alpha > 0.01 {
+        for button in accessButtons.reversed() where button.isUserInteractionEnabled && !button.isHidden && button.alpha > 0.01 {
             let local = convert(point, to: button)
             if button.point(inside: local, with: event) {
                 return button
@@ -734,7 +756,7 @@ private enum NuvioUiTestTapForwarder {
 
     static func install(on control: NuvioTabSegmentedControl) {
         self.control = control
-        guard !installed, ProcessInfo.processInfo.arguments.contains("-uiTestSkipOnboarding") else { return }
+        guard !installed, NuvioUiTestLaunch.skipsOnboarding else { return }
         guard
             let original = class_getInstanceMethod(UIApplication.self, #selector(UIApplication.sendEvent(_:))),
             let swizzled = class_getInstanceMethod(UIApplication.self, #selector(UIApplication.nuvio_sendEvent(_:)))
@@ -776,21 +798,37 @@ final class NuvioTabAccessButton: UIButton {
     weak var control: NuvioTabSegmentedControl?
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard NuvioUiTestLaunch.skipsOnboarding else {
+            super.touchesBegan(touches, with: event)
+            return
+        }
         control?.forwardTouch(touches, event: event, phase: .began)
         super.touchesBegan(touches, with: event)
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard NuvioUiTestLaunch.skipsOnboarding else {
+            super.touchesMoved(touches, with: event)
+            return
+        }
         control?.forwardTouch(touches, event: event, phase: .moved)
         super.touchesMoved(touches, with: event)
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard NuvioUiTestLaunch.skipsOnboarding else {
+            super.touchesEnded(touches, with: event)
+            return
+        }
         control?.forwardTouch(touches, event: event, phase: .ended)
         super.touchesEnded(touches, with: event)
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard NuvioUiTestLaunch.skipsOnboarding else {
+            super.touchesCancelled(touches, with: event)
+            return
+        }
         control?.forwardTouch(touches, event: event, phase: .cancelled)
         super.touchesCancelled(touches, with: event)
     }
