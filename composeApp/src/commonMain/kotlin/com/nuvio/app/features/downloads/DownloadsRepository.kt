@@ -1053,6 +1053,9 @@ object DownloadsRepository {
                     )
                 }
                 com.nuvio.app.features.analysis.MediaAnalysisScheduler.kick()
+                // The full-file queue stays paused while a video is open. The same pass the
+                // background relaunch uses measures this file without waiting for the player to close.
+                com.nuvio.app.features.analysis.NextEpisodeAnalysisScheduler.onDownloadCompleted(item.id)
                 AnalysisTempDownloads.onDownloadFinished(item.id)
                 com.nuvio.app.features.offline.OfflineArtwork.cache(item)
                 StorageAutopilot.run()

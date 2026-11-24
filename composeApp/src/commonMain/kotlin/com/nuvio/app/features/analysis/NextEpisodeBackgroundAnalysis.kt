@@ -144,6 +144,64 @@ internal fun stitchClipFingerprints(parts: List<RawClipFingerprint>): String? {
     return encodeFingerprint(frames.toIntArray())
 }
 
+/**
+ * A playback pass must not replace a mark, an imported segment, or a longer print.
+ * File-specific energy and loudness stay when this is the same file. A different file keeps the marks only.
+ */
+internal fun MediaAnalysisResult.keepingStoredAnalysis(previous: MediaAnalysisResult?): MediaAnalysisResult {
+    if (previous == null || previous.key != key) return this
+    val sameFile = previous.fileName == null || fileName == null || previous.fileName == fileName
+    if (!sameFile) {
+        return copy(
+            userSegments = previous.userSegments,
+            rejectedSegments = previous.rejectedSegments,
+            learnedTypes = previous.learnedTypes,
+            foundUsing = previous.foundUsing,
+        )
+    }
+    val keptEnergy = longerEncoded(previous.energy, energy, ::energySampleCount)
+    val keptHead = longerEncoded(previous.headFingerprint, headFingerprint, ::fingerprintSampleCount)
+    val keptTail = longerEncoded(previous.tailFingerprint, tailFingerprint, ::fingerprintSampleCount)
+    val keepPreviousHead = fingerprintSampleCount(previous.headFingerprint) >= fingerprintSampleCount(headFingerprint) &&
+        previous.headFingerprint != null
+    val keepPreviousTail = fingerprintSampleCount(previous.tailFingerprint) >= fingerprintSampleCount(tailFingerprint) &&
+        previous.tailFingerprint != null
+    val keepPreviousEnergy = energySampleCount(previous.energy) >= energySampleCount(energy) && previous.energy != null
+    return copy(
+        energy = keptEnergy,
+        energyStepMs = if (keepPreviousEnergy && previous.energyStepMs > 0) previous.energyStepMs else energyStepMs,
+        integratedLufs = integratedLufs ?: previous.integratedLufs,
+        headFingerprint = keptHead,
+        tailFingerprint = keptTail,
+        tailStartMs = if (keepPreviousTail) previous.tailStartMs else tailStartMs,
+        fingerprintStepMs = if (keepPreviousHead && previous.fingerprintStepMs > 0) previous.fingerprintStepMs else fingerprintStepMs,
+        userSegments = previous.userSegments,
+        rejectedSegments = previous.rejectedSegments,
+        learnedTypes = previous.learnedTypes,
+        foundUsing = previous.foundUsing,
+        chapterTypes = previous.chapterTypes,
+        thumbnails = previous.thumbnails ?: thumbnails,
+        silentRanges = previous.silentRanges.ifEmpty { silentRanges },
+        blackRanges = previous.blackRanges.ifEmpty { blackRanges },
+        previewStartMs = previous.previewStartMs ?: previewStartMs,
+        previewEndMs = previous.previewEndMs ?: previewEndMs,
+        recapStartMs = previous.recapStartMs,
+        recapEndMs = previous.recapEndMs,
+        recapOutcome = previous.recapOutcome,
+        analysisAttempts = previous.analysisAttempts,
+        subtitleSyncSpeed = previous.subtitleSyncSpeed,
+        subtitleSyncDelayMs = previous.subtitleSyncDelayMs,
+        subtitleSyncSourceKey = previous.subtitleSyncSourceKey,
+    ).carryingKnownSegments(previous)
+}
+
+private fun energySampleCount(encoded: String?): Int = decodeEnergyLevels(encoded).size
+
+private fun fingerprintSampleCount(encoded: String?): Int = decodeFingerprint(encoded).size
+
+private fun longerEncoded(previous: String?, incoming: String?, count: (String?) -> Int): String? =
+    if (count(previous) >= count(incoming)) previous ?: incoming else incoming ?: previous
+
 internal fun stitchClipEnergy(parts: List<RawClipFingerprint>): String? {
     if (parts.isEmpty() || parts.any { decodeEnergyLevels(it.energy).isEmpty() }) return null
     val levels = parts.flatMap { decodeEnergyLevels(it.energy).asList() }
@@ -161,6 +219,9 @@ internal object NextEpisodeAnalysisScheduler {
     private val json = LenientJson
     private val jobLock = SynchronizedObject()
     private var job: Job? = null
+    private val probes = mutableListOf<Job>()
+    /** Bumped when the player closes or the watched episode changes. A pass from an older ticket stores nothing. */
+    private var epoch = 0
     private var watched: WatchedEpisode? = null
     private val _status = MutableStateFlow(NextEpisodeAnalysisStatus())
     val status: StateFlow<NextEpisodeAnalysisStatus> = _status.asStateFlow()
@@ -170,6 +231,8 @@ internal object NextEpisodeAnalysisScheduler {
     internal var downloadLookupForTest: ((String) -> NextEpisodeTarget?)? = null
     internal var targetOverrideForTest: ((String, Int, Int, String?) -> NextEpisodeTarget?)? = null
     internal var scopeForTest: CoroutineScope? = null
+    /** When set, a brake retries after this many milliseconds instead of one shot. Production leaves it null. */
+    internal var holdRetryMsForTest: Long? = null
 
     private val platformWindows = object : NextEpisodeWindows {
         override suspend fun localWindow(fileUri: String, windowMs: Long, startMs: Long): RawMediaAnalysis? {
@@ -207,10 +270,12 @@ internal object NextEpisodeAnalysisScheduler {
 
     fun watchPlayingNext(parentMetaId: String, season: Int, episode: Int, videoId: String?) {
         if (parentMetaId.isBlank()) return
-        synchronized(jobLock) {
+        val ticket = synchronized(jobLock) {
+            epoch += 1
             watched = WatchedEpisode(parentMetaId, season, episode, videoId)
+            epoch
         }
-        start {
+        start(ticket) {
             val target = targetOverrideForTest?.invoke(parentMetaId, season, episode, videoId)
                 ?: targetFor(parentMetaId, season, episode, videoId)
                 ?: return@start
@@ -221,43 +286,65 @@ internal object NextEpisodeAnalysisScheduler {
     /**
      * A file that finished while the player is open. Idle playback stays on the full-file queue,
      * which [com.nuvio.app.features.downloads.DownloadsRepository] already wakes.
+     * A brake, or a file this pass cannot read, does not cancel the episode already being measured.
      */
     fun onDownloadCompleted(downloadId: String) {
-        start {
+        val ticket = synchronized(jobLock) { epoch }
+        val host = scopeForTest ?: scope
+        val probe = host.launch {
+            if (!matches(ticket)) return@launch
             val conditions = currentConditions()
             val playing = conditions.videoPlaying
             val hold = nextEpisodeAnalysisHold(conditions)
-            if (!playing && hold == NextEpisodeAnalysisHold.None) return@start
+            if (!playing && hold == NextEpisodeAnalysisHold.None) return@launch
             val target = if (downloadLookupForTest != null) {
                 downloadLookupForTest?.invoke(downloadId)
             } else {
                 runCatching { targetFromDownload(downloadId) }.getOrNull()
-            } ?: return@start
+            } ?: return@launch
+            if (!matches(ticket)) return@launch
+            val watchRunning = synchronized(jobLock) { watched != null && job?.isActive == true }
             if (hold != NextEpisodeAnalysisHold.None) {
-                publish(target, nextEpisodeHoldToken(hold))
-                return@start
+                if (watchRunning) return@launch
+                if (!playing) {
+                    publish(target, nextEpisodeHoldToken(hold))
+                    return@launch
+                }
+                start(ticket) { finish(target) }
+                return@launch
             }
-            finish(target)
-            val resume = synchronized(jobLock) { watched }
-            if (
-                resume != null &&
-                (resume.parentMetaId != target.parentMetaId || resume.season != target.season || resume.episode != target.episode)
-            ) {
-                val next = targetOverrideForTest?.invoke(resume.parentMetaId, resume.season, resume.episode, resume.videoId)
-                    ?: targetFor(resume.parentMetaId, resume.season, resume.episode, resume.videoId)
-                if (next != null) finish(next)
+            start(ticket) {
+                finish(target)
+                if (!matches(ticket)) return@start
+                val resume = synchronized(jobLock) { watched }
+                if (
+                    resume != null &&
+                    (resume.parentMetaId != target.parentMetaId || resume.season != target.season || resume.episode != target.episode)
+                ) {
+                    val next = targetOverrideForTest?.invoke(resume.parentMetaId, resume.season, resume.episode, resume.videoId)
+                        ?: targetFor(resume.parentMetaId, resume.season, resume.episode, resume.videoId)
+                    if (next != null) finish(next)
+                }
             }
+        }
+        synchronized(jobLock) {
+            probes.removeAll { !it.isActive }
+            if (ticket != epoch) probe.cancel() else probes += probe
         }
     }
 
     fun cancelWatch() {
-        val previous = synchronized(jobLock) {
+        val stopping = synchronized(jobLock) {
+            epoch += 1
             watched = null
             val old = job
             job = null
-            old
+            val extra = probes.toList()
+            probes.clear()
+            old to extra
         }
-        previous?.cancel()
+        stopping.first?.cancel()
+        stopping.second.forEach { it.cancel() }
         _status.value = NextEpisodeAnalysisStatus()
     }
 
@@ -270,37 +357,59 @@ internal object NextEpisodeAnalysisScheduler {
         downloadLookupForTest = null
         targetOverrideForTest = null
         scopeForTest = null
+        holdRetryMsForTest = null
     }
 
-    private fun start(block: suspend () -> Unit) {
-        val host = scopeForTest
-        val launched = if (host != null) host.launch { block() } else scope.launch { block() }
+    private fun matches(ticket: Int): Boolean = synchronized(jobLock) { ticket == epoch }
+
+    /**
+     * The previous pass is cancelled before the new one is launched, so its decoder abort
+     * cannot land on the replacement. A ticket from a closed player is not stored.
+     */
+    private fun start(ticket: Int, block: suspend () -> Unit) {
         val previous = synchronized(jobLock) {
+            if (ticket != epoch) return
             val old = job
-            job = launched
+            job = null
             old
         }
         previous?.cancel()
+        if (!matches(ticket)) return
+        val host = scopeForTest ?: scope
+        val launched = host.launch {
+            if (!matches(ticket)) return@launch
+            block()
+        }
+        synchronized(jobLock) {
+            if (ticket != epoch) launched.cancel() else job = launched
+        }
     }
 
     private suspend fun finish(target: NextEpisodeTarget) {
-        if (scopeForTest != null) {
+        val retry = holdRetryMsForTest
+        if (scopeForTest != null && retry == null) {
             run(target)
             return
         }
         while (currentCoroutineContext().isActive) {
             val result = run(target)
             if (result.hold == NextEpisodeAnalysisHold.None) return
-            delay(NEXT_EPISODE_HOLD_RETRY_MS)
+            delay(retry ?: NEXT_EPISODE_HOLD_RETRY_MS)
         }
     }
 
     private suspend fun run(target: NextEpisodeTarget): NextEpisodeRunResult {
         currentCoroutineContext().ensureActive()
-        val hold = nextEpisodeAnalysisHold(currentConditions())
-        if (hold != NextEpisodeAnalysisHold.None) {
-            publish(target, nextEpisodeHoldToken(hold))
-            return NextEpisodeRunResult(hold)
+        when (val blocked = gate()) {
+            is Read.Held -> {
+                publish(target, nextEpisodeHoldToken(blocked.hold))
+                return NextEpisodeRunResult(blocked.hold)
+            }
+            Read.Closed -> {
+                publish(target, "")
+                return NextEpisodeRunResult(NextEpisodeAnalysisHold.None)
+            }
+            else -> Unit
         }
         if (target.localFileUri.isNullOrBlank() && target.streamUrl.isNullOrBlank()) {
             publish(target, "")
@@ -312,16 +421,26 @@ internal object NextEpisodeAnalysisScheduler {
                 publish(target, nextEpisodeHoldToken(read.hold))
                 NextEpisodeRunResult(read.hold)
             }
+            Read.Closed -> {
+                publish(target, "")
+                NextEpisodeRunResult(NextEpisodeAnalysisHold.None)
+            }
             Read.Empty -> {
                 publish(target, "")
                 NextEpisodeRunResult(NextEpisodeAnalysisHold.None)
             }
             is Read.Ready -> {
                 currentCoroutineContext().ensureActive()
-                val again = nextEpisodeAnalysisHold(currentConditions())
-                if (again != NextEpisodeAnalysisHold.None) {
-                    publish(target, nextEpisodeHoldToken(again))
-                    return NextEpisodeRunResult(again)
+                when (val again = gate()) {
+                    is Read.Held -> {
+                        publish(target, nextEpisodeHoldToken(again.hold))
+                        return NextEpisodeRunResult(again.hold)
+                    }
+                    Read.Closed -> {
+                        publish(target, "")
+                        return NextEpisodeRunResult(NextEpisodeAnalysisHold.None)
+                    }
+                    else -> Unit
                 }
                 publish(target, "subtitles")
                 val stored = store(target, read.draft)
@@ -334,18 +453,18 @@ internal object NextEpisodeAnalysisScheduler {
     private suspend fun readLocal(target: NextEpisodeTarget): Read {
         val uri = target.localFileUri ?: return Read.Empty
         val windows = windowsForTest ?: platformWindows
-        val blocked = heldNow()
-        if (blocked != null) return Read.Held(blocked)
+        val blocked = gate()
+        if (blocked != null) return blocked
         publish(target, "intro")
         currentCoroutineContext().ensureActive()
         val intro = windows.localWindow(uri, INTRO_WINDOW_MS, 0L)
-        val afterIntro = heldNow()
-        if (afterIntro != null) return Read.Held(afterIntro)
+        val afterIntro = gate()
+        if (afterIntro != null) return afterIntro
         publish(target, "credits")
         currentCoroutineContext().ensureActive()
         val credits = windows.localWindow(uri, CREDITS_WINDOW_MS, WINDOW_AT_END)
-        val afterCredits = heldNow()
-        if (afterCredits != null) return Read.Held(afterCredits)
+        val afterCredits = gate()
+        if (afterCredits != null) return afterCredits
         val draft = assemble(target, intro, credits) ?: return Read.Empty
         return Read.Ready(draft)
     }
@@ -353,46 +472,72 @@ internal object NextEpisodeAnalysisScheduler {
     private suspend fun readStream(target: NextEpisodeTarget): Read {
         val url = target.streamUrl ?: return Read.Empty
         val windows = windowsForTest ?: platformWindows
+        val blocked = gate()
+        if (blocked != null) return blocked
         publish(target, "intro")
-        val introParts = ArrayList<RawClipFingerprint>()
-        for ((start, end) in analysisSlices(0L, INTRO_WINDOW_MS)) {
-            currentCoroutineContext().ensureActive()
-            val blocked = heldNow()
-            if (blocked != null) return Read.Held(blocked)
-            val clip = windows.streamWindow(url, target.streamHeaders, start, end) ?: break
-            if (!clip.windowComplete || decodeFingerprint(clip.fingerprint).isEmpty()) break
-            introParts += clip
-        }
+        val introSlices = analysisSlices(0L, INTRO_WINDOW_MS)
+        val introRead = readSlices(windows, url, target.streamHeaders, introSlices)
+        if (introRead.stopped != null) return introRead.stopped
+        val introParts = introRead.parts
         publish(target, "credits")
-        val creditParts = ArrayList<RawClipFingerprint>()
         val creditsOrigin = if (target.durationMs > CREDITS_WINDOW_MS) target.durationMs - CREDITS_WINDOW_MS else -1L
-        if (creditsOrigin >= 0L) {
-            for ((start, end) in analysisSlices(creditsOrigin, target.durationMs)) {
-                currentCoroutineContext().ensureActive()
-                val blocked = heldNow()
-                if (blocked != null) return Read.Held(blocked)
-                val clip = windows.streamWindow(url, target.streamHeaders, start, end) ?: break
-                if (!clip.windowComplete || decodeFingerprint(clip.fingerprint).isEmpty()) break
-                creditParts += clip
-            }
+        val creditSlices = if (creditsOrigin >= 0L) analysisSlices(creditsOrigin, target.durationMs) else emptyList()
+        val creditRead = if (creditSlices.isEmpty()) {
+            Slices(emptyList(), null)
+        } else {
+            readSlices(windows, url, target.streamHeaders, creditSlices)
         }
+        if (creditRead.stopped != null) return creditRead.stopped
+        val creditParts = creditRead.parts
         val intro = RawMediaAnalysis(
             durationMs = target.durationMs,
-            energy = stitchClipEnergy(introParts),
+            energy = if (introParts.size == introSlices.size) stitchClipEnergy(introParts) else null,
             energyStepMs = introParts.firstOrNull()?.energyStepMs?.takeIf { it > 0 } ?: 100,
-            head = stitchClipFingerprints(introParts),
+            head = if (introParts.size == introSlices.size) stitchClipFingerprints(introParts) else null,
         )
         val credits = RawMediaAnalysis(
             durationMs = target.durationMs,
-            tail = stitchClipFingerprints(creditParts),
+            tail = if (creditSlices.isNotEmpty() && creditParts.size == creditSlices.size) {
+                stitchClipFingerprints(creditParts)
+            } else {
+                null
+            },
             tailStartMs = creditsOrigin.coerceAtLeast(0L),
         )
         val draft = assemble(target, intro, credits) ?: return Read.Empty
         return Read.Ready(draft)
     }
 
-    private suspend fun heldNow(): NextEpisodeAnalysisHold? =
-        nextEpisodeAnalysisHold(currentConditions()).takeIf { it != NextEpisodeAnalysisHold.None }
+    /**
+     * [Slices.stopped] is a brake or a closed player. A short prefix is kept only so the caller
+     * can see that it does not cover [slices]; it is not stored as the episode fingerprint.
+     */
+    private suspend fun readSlices(
+        windows: NextEpisodeWindows,
+        url: String,
+        headers: Map<String, String>,
+        slices: List<Pair<Long, Long>>,
+    ): Slices {
+        if (slices.isEmpty()) return Slices(emptyList(), null)
+        val parts = ArrayList<RawClipFingerprint>(slices.size)
+        for ((start, end) in slices) {
+            currentCoroutineContext().ensureActive()
+            val blocked = gate()
+            if (blocked != null) return Slices(parts, blocked)
+            val clip = windows.streamWindow(url, headers, start, end) ?: return Slices(parts, null)
+            if (!clip.windowComplete || decodeFingerprint(clip.fingerprint).isEmpty()) return Slices(parts, null)
+            parts += clip
+        }
+        return Slices(parts, null)
+    }
+
+    /** A closed player is not a brake: the pass stops and stores nothing, and it does not retry. */
+    private suspend fun gate(): Read? {
+        val conditions = currentConditions()
+        if (!conditions.videoPlaying) return Read.Closed
+        val hold = nextEpisodeAnalysisHold(conditions)
+        return if (hold == NextEpisodeAnalysisHold.None) null else Read.Held(hold)
+    }
 
     private fun assemble(
         target: NextEpisodeTarget,
@@ -423,11 +568,14 @@ internal object NextEpisodeAnalysisScheduler {
 
     /**
      * Same detector and subtitle fit as a finished download. Nothing is submitted upstream.
+     * A mark, an imported segment, or a longer print already stored for this episode stays.
      */
     private fun store(target: NextEpisodeTarget, draft: MediaAnalysisResult): MediaAnalysisResult {
-        val siblings = MediaAnalysisStore.seasonSiblings(target.parentMetaId, target.season, draft.key)
-        val detected = SeasonSegmentDetector.detect(draft, siblings)
-        var next = draft.applyingDetection(detected)
+        val previous = MediaAnalysisStore.load(draft.key)
+        val merged = draft.keepingStoredAnalysis(previous)
+        val siblings = MediaAnalysisStore.seasonSiblings(target.parentMetaId, target.season, merged.key)
+        val detected = SeasonSegmentDetector.detect(merged, siblings)
+        var next = merged.applyingDetection(detected)
         if (target.cues.isNotEmpty() && !next.energy.isNullOrEmpty()) {
             val fit = fitSubtitleEnergy(next, target.cues)
             if (fit.confident) {
@@ -516,9 +664,12 @@ internal object NextEpisodeAnalysisScheduler {
         return url to cached.requestHeaders
     }
 
+    private data class Slices(val parts: List<RawClipFingerprint>, val stopped: Read?)
+
     private sealed interface Read {
         data class Ready(val draft: MediaAnalysisResult) : Read
         data class Held(val hold: NextEpisodeAnalysisHold) : Read
+        data object Closed : Read
         data object Empty : Read
     }
 

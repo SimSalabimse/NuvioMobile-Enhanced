@@ -111,8 +111,9 @@ internal fun subtitleSyncCandidate(
 }
 
 /**
- * Applies a remembered fit, then measures when this file has speech energy and cues.
- * A restored per-video delay does not cancel the measurement.
+ * Measures this file when it has speech energy and cues. A remembered fit is applied only
+ * when there is nothing to measure, as one absolute speed and delay.
+ * A restored per-video delay does not cancel the measurement. A nudge after the ticket does.
  */
 internal fun correctSubtitleDrift(
     analysis: MediaAnalysisResult?,
@@ -124,18 +125,19 @@ internal fun correctSubtitleDrift(
     release: String?,
     cancelled: () -> Boolean = { false },
 ): SubtitleDriftOutcome {
-    if (cancelled() || !correction.isCurrent(ticket)) return SubtitleDriftOutcome.Cancelled
+    if (cancelled() || !correction.isCurrent(ticket) || correction.nudgedSince(ticket)) {
+        return SubtitleDriftOutcome.Cancelled
+    }
     val key = subtitleSourceKey(provider, language, release)
     val remembered = SubtitleSourceMemory.recall(key)
-    if (remembered != null) {
-        correction.applyKnown(remembered.subSpeed, remembered.subDelayMs, ticket)
-    }
-    if (analysis?.energy.isNullOrEmpty() || cues.isEmpty()) {
-        return if (remembered != null && correction.isCurrent(ticket)) {
-            SubtitleDriftOutcome.Applied
-        } else {
-            SubtitleDriftOutcome.LowConfidence
+    val canMeasure = !analysis?.energy.isNullOrEmpty() && cues.isNotEmpty()
+    if (!canMeasure) {
+        // No speech to measure against. A remembered fit is the only correction, and it is one
+        // absolute speed and delay, not a second scale on top of a fit already on the player.
+        if (remembered != null && correction.applyKnown(remembered.subSpeed, remembered.subDelayMs, ticket)) {
+            return SubtitleDriftOutcome.Applied
         }
+        return SubtitleDriftOutcome.LowConfidence
     }
     val outcome = correction.correct(
         source = SubtitleObservationSource { energySubtitleObservations(analysis, cues) },

@@ -13,6 +13,7 @@ import com.nuvio.app.features.player.shownSubtitleMs
 import com.nuvio.app.features.player.subtitleSourceKey
 import com.nuvio.app.features.player.subtitleSyncCandidate
 import com.nuvio.app.features.streams.StreamSubtitle
+import java.io.File
 import kotlin.math.abs
 import kotlin.math.min
 import kotlin.random.Random
@@ -27,6 +28,7 @@ import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -323,6 +325,274 @@ class NextEpisodeAnalysisTest {
         )
     }
 
+    @Test
+    fun aPlaybackPassKeepsMarksAndTheLongerPrint() = runTest {
+        val key = MediaAnalysisStore.keyFor("show1", 1, 2)
+        val fullEnergy = quantizedEnergy(durationMs, emptyList())
+        // The one-time import cleanup runs on the first load and would drop this mark
+        // before the pass can show that it keeps it. Record the cleanup first.
+        MediaAnalysisStore.load(key)
+        MediaAnalysisStore.save(
+            MediaAnalysisResult(
+                key = key,
+                analyzedAtMs = 1L,
+                durationMs = durationMs,
+                fileName = "episode.mkv",
+                energyStepMs = 100,
+                energy = fullEnergy,
+                fingerprintStepMs = 100,
+                headFingerprint = encodeFingerprint(head),
+                tailFingerprint = encodeFingerprint(tail),
+                tailStartMs = durationMs - tailMs,
+                introStartMs = 10_000L,
+                introEndMs = 70_000L,
+                introConfidence = SegmentConfidence(agreeingSiblings = 3, avgBitErrors = 1.0, theIntroDbAgrees = true),
+                userSegments = mapOf(
+                    "intro" to UserSegment(
+                        startMs = 10_000L,
+                        endMs = 70_000L,
+                        markedAtMs = 5L,
+                        imported = true,
+                        durationMs = durationMs,
+                    ),
+                ),
+                rejectedSegments = listOf(RejectedSegment("outro", 1_000L, 2_000L)),
+                learnedTypes = setOf("intro"),
+                thumbnails = ThumbnailSheets(
+                    intervalMs = 10_000L,
+                    count = 1,
+                    tileWidth = 160,
+                    tileHeight = 90,
+                    columns = 10,
+                    rows = 10,
+                    sheets = 1,
+                ),
+            ),
+        )
+        val cues = cuesAt(energyMs, scale = 1.0, extraFileLagMs = 0L)
+        arm(playing(), cues)
+        val result = NextEpisodeAnalysisScheduler.runNow(target(cues))
+
+        assertEquals(NextEpisodeAnalysisHold.None, result.hold)
+        val stored = storedEpisode()
+        val kept = stored.userSegments["intro"]
+        assertNotNull(kept)
+        assertEquals(10_000L, kept.startMs)
+        assertEquals(70_000L, kept.endMs)
+        assertTrue(kept.imported)
+        assertEquals(10_000L, stored.introStartMs)
+        assertEquals(70_000L, stored.introEndMs)
+        assertEquals(true, stored.introConfidence?.theIntroDbAgrees)
+        assertEquals("outro", stored.rejectedSegments.single().type)
+        assertTrue(stored.learnedTypes.contains("intro"))
+        assertEquals(1, stored.thumbnails?.sheets)
+        assertEquals(fullEnergy, stored.energy)
+    }
+
+    @Test
+    fun thePassStopsWhenPlaybackClosesBetweenWindows() = runTest {
+        val cues = cuesAt(energyMs, scale = 1.0, extraFileLagMs = 0L)
+        arm(playing(), cues)
+        NextEpisodeAnalysisScheduler.windowsForTest = object : NextEpisodeWindows {
+            override suspend fun localWindow(fileUri: String, windowMs: Long, startMs: Long): RawMediaAnalysis? {
+                windowCalls += 1
+                NextEpisodeAnalysisScheduler.conditionsForTest = { playing().copy(videoPlaying = false) }
+                return introWindow()
+            }
+
+            override suspend fun streamWindow(
+                url: String,
+                headers: Map<String, String>,
+                startMs: Long,
+                endMs: Long,
+            ): RawClipFingerprint? = null
+        }
+        val result = NextEpisodeAnalysisScheduler.runNow(target(cues))
+
+        assertEquals(NextEpisodeAnalysisHold.None, result.hold)
+        assertEquals(1, windowCalls)
+        assertNull(MediaAnalysisStore.load(MediaAnalysisStore.keyFor("show1", 1, 2)))
+    }
+
+    @Test
+    fun aBrakeOnAFinishedDownloadLeavesTheOpenEpisodePassRunning() = runTest {
+        val cues = cuesAt(energyMs, scale = 1.0, extraFileLagMs = 0L)
+        val started = CompletableDeferred<Unit>()
+        val gate = CompletableDeferred<Unit>()
+        var downloadHold = false
+        windowCalls = 0
+        NextEpisodeAnalysisScheduler.conditionsForTest = {
+            if (downloadHold) playing(lowPowerMode = true) else playing()
+        }
+        NextEpisodeAnalysisScheduler.windowsForTest = object : NextEpisodeWindows {
+            override suspend fun localWindow(fileUri: String, windowMs: Long, startMs: Long): RawMediaAnalysis? {
+                windowCalls += 1
+                if (startMs == 0L) {
+                    started.complete(Unit)
+                    gate.await()
+                    return introWindow()
+                }
+                return RawMediaAnalysis(
+                    durationMs = durationMs,
+                    fingerprintStepMs = 100,
+                    tail = encodeFingerprint(tail),
+                    tailStartMs = durationMs - tailMs,
+                )
+            }
+
+            override suspend fun streamWindow(
+                url: String,
+                headers: Map<String, String>,
+                startMs: Long,
+                endMs: Long,
+            ): RawClipFingerprint? = null
+        }
+        NextEpisodeAnalysisScheduler.scopeForTest = this
+        NextEpisodeAnalysisScheduler.targetOverrideForTest = { _, _, _, _ -> target(cues) }
+        NextEpisodeAnalysisScheduler.watchPlayingNext("show1", 1, 2, "video-2")
+        started.await()
+        downloadHold = true
+        NextEpisodeAnalysisScheduler.downloadLookupForTest = { id ->
+            if (id == "other") target(cues).copy(episode = 3, downloadId = "other") else null
+        }
+        NextEpisodeAnalysisScheduler.onDownloadCompleted("other")
+        advanceUntilIdle()
+        downloadHold = false
+        gate.complete(Unit)
+        advanceUntilIdle()
+
+        assertNotNull(MediaAnalysisStore.load(MediaAnalysisStore.keyFor("show1", 1, 2))?.introStartMs)
+    }
+
+    @Test
+    fun aFinishedDownloadRetriesWhenTheBrakeLiftsWhileThePlayerStaysOpen() = runTest {
+        val cues = cuesAt(energyMs, scale = 1.0, extraFileLagMs = 0L)
+        var reads = 0
+        windowCalls = 0
+        energy = quantizedEnergy(energyMs, speechAt(energyMs, 1.0, 0L))
+        NextEpisodeAnalysisScheduler.conditionsForTest = {
+            reads += 1
+            if (reads < 3) playing(lowPowerMode = true) else playing()
+        }
+        NextEpisodeAnalysisScheduler.windowsForTest = localWindows()
+        NextEpisodeAnalysisScheduler.scopeForTest = this
+        NextEpisodeAnalysisScheduler.holdRetryMsForTest = 1L
+        NextEpisodeAnalysisScheduler.downloadLookupForTest = { target(cues) }
+        NextEpisodeAnalysisScheduler.onDownloadCompleted("dl-2")
+        advanceUntilIdle()
+
+        assertTrue(windowCalls > 0)
+        assertNotNull(MediaAnalysisStore.load(MediaAnalysisStore.keyFor("show1", 1, 2)))
+    }
+
+    @Test
+    fun aPartialStreamSliceIsNotStored() = runTest {
+        windowCalls = 0
+        NextEpisodeAnalysisScheduler.conditionsForTest = { playing() }
+        NextEpisodeAnalysisScheduler.windowsForTest = object : NextEpisodeWindows {
+            override suspend fun localWindow(fileUri: String, windowMs: Long, startMs: Long): RawMediaAnalysis? = null
+
+            override suspend fun streamWindow(
+                url: String,
+                headers: Map<String, String>,
+                startMs: Long,
+                endMs: Long,
+            ): RawClipFingerprint? {
+                windowCalls += 1
+                if (windowCalls > 1) return null
+                return RawClipFingerprint(
+                    startMs = startMs,
+                    stepMs = 100,
+                    fingerprint = encodeFingerprint(intArrayOf(1, 2, 3, 4)),
+                    energy = encodeEnergyLevels(intArrayOf(1, 2, 3, 4)),
+                    energyStepMs = 100,
+                    windowComplete = true,
+                    stopReason = "window-end",
+                )
+            }
+        }
+        val result = NextEpisodeAnalysisScheduler.runNow(target(emptyList(), local = false))
+
+        assertEquals(NextEpisodeAnalysisHold.None, result.hold)
+        assertTrue(windowCalls > 1)
+        assertNull(MediaAnalysisStore.load(MediaAnalysisStore.keyFor("show1", 1, 2)))
+    }
+
+    @Test
+    fun aManualNudgeIsNotReplacedByARememberedFit() {
+        val key = subtitleSourceKey("OpenSubtitles", "no", "release-a")
+        SubtitleSourceMemory.remember(key, 23.976 / 25.0, -2_000L)
+        val transport = RecordingTransport()
+        val correction = SubtitleDriftCorrection(transport)
+        val ticket = correction.begin()
+        correction.noteManualDelay(400L)
+        val outcome = correctSubtitleDrift(
+            analysis = analysisFor(durationMs, speechAt(durationMs, 1.0, 0L)),
+            cues = cuesAt(durationMs, 1.0, 0L),
+            correction = correction,
+            ticket = ticket,
+            provider = "OpenSubtitles",
+            language = "no",
+            release = "release-a",
+        )
+
+        assertEquals(SubtitleDriftOutcome.Cancelled, outcome)
+        assertTrue(transport.fits.isEmpty())
+        assertEquals(listOf(400L), transport.userDelays)
+    }
+
+    @Test
+    fun aRememberedFitIsNotAppliedWhenThisFileCanBeMeasured() {
+        val key = subtitleSourceKey("OpenSubtitles", "no", "release-a")
+        SubtitleSourceMemory.remember(key, 23.976 / 25.0, -2_000L)
+        val transport = RecordingTransport()
+        val correction = SubtitleDriftCorrection(transport)
+        val ticket = correction.begin()
+        val outcome = correctSubtitleDrift(
+            analysis = analysisFor(durationMs, emptyList()),
+            cues = cuesAt(durationMs, 1.0, 0L),
+            correction = correction,
+            ticket = ticket,
+            provider = "OpenSubtitles",
+            language = "no",
+            release = "release-a",
+        )
+
+        assertTrue(outcome != SubtitleDriftOutcome.Applied || transport.fits.all { abs(it.first - 1.0) < 0.02 })
+        assertTrue(transport.fits.none { it.first < 0.99 })
+    }
+
+    @Test
+    fun aRememberedFrameRateIsNotAppliedTwice() {
+        val key = subtitleSourceKey("OpenSubtitles", "no", "release-a")
+        SubtitleSourceMemory.remember(key, 23.976 / 25.0, 0L)
+        val fit = playFit(2_400_000L, 25.0 / 23.976, extraFileLagMs = 0L, restoredDelayMs = 0L)
+        assertTrue(abs(fit.subSpeed - (23.976 / 25.0)) < 0.02, "speed ${fit.subSpeed}")
+        val endFile = (2_400_000L * (25.0 / 23.976)).toLong()
+        val shown = shownSubtitleMs(endFile, fit)
+        assertTrue(abs(shown - 2_400_000.0) < 3_000.0, "end ${shown - 2_400_000.0}")
+    }
+
+    @Test
+    fun playbackSlicesStayOffTheMainQueueAndDoNotLogAddresses() {
+        val analyzer = locateRepoFile("iosApp/iosApp/Player/MediaAnalyzer.swift").readText()
+        val playback = analyzer.substringAfter("func fingerprintClipDuringPlayback")
+            .substringBefore("func cancelPlayback")
+        assertFalse(playback.contains("DispatchQueue.main"))
+        assertTrue(playback.contains("DispatchQueue.global"))
+        assertTrue(analyzer.contains("func cancelPlayback(generation: Int64)"))
+        assertTrue(analyzer.contains("av_log_set_level(-8)"))
+        val clip = analyzer.substringAfter("private final class ClipFingerprintRun")
+            .substringBefore("private enum ClipAddressLog")
+        assertFalse(Regex("""log\([^)]*\\\(url\)""").containsMatchIn(clip))
+        assertFalse(Regex("""log\([^)]*header""").containsMatchIn(clip))
+        val downloads = locateRepoFile(
+            "composeApp/src/commonMain/kotlin/com/nuvio/app/features/downloads/DownloadsRepository.kt",
+        ).readText()
+        val success = downloads.substringAfter("onSuccess = onSuccess@").substringBefore("onFailure")
+        assertTrue(success.contains("NextEpisodeAnalysisScheduler.onDownloadCompleted"))
+    }
+
     private fun arm(conditions: NextEpisodeAnalysisConditions, cues: List<SubtitleSyncCue>) {
         energy = quantizedEnergy(energyMs, speechAt(energyMs, 1.0, 0L))
         if (cues.isNotEmpty()) {
@@ -509,7 +779,25 @@ class NextEpisodeAnalysisTest {
 }
 
 private class RecordingTransport : SubtitleSyncTransport {
-    override fun applyFit(speed: Double, fitDelayMs: Long) = Unit
-    override fun applyUserDelay(delayMs: Long) = Unit
+    val fits = mutableListOf<Pair<Double, Long>>()
+    val userDelays = mutableListOf<Long>()
+
+    override fun applyFit(speed: Double, fitDelayMs: Long) {
+        fits += speed to fitDelayMs
+    }
+
+    override fun applyUserDelay(delayMs: Long) {
+        userDelays += delayMs
+    }
+
     override fun resetFit() = Unit
+}
+
+private fun locateRepoFile(relative: String): File {
+    val start = File(System.getProperty("user.dir").orEmpty().ifEmpty { "." })
+    return generateSequence(start) { it.parentFile }
+        .take(6)
+        .map { File(it, relative) }
+        .firstOrNull { it.isFile }
+        ?: error("Missing $relative from ${start.absolutePath}")
 }

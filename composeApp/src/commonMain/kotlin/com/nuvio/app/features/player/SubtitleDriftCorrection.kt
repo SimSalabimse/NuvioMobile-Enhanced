@@ -77,9 +77,12 @@ internal class SubtitleDriftCorrection(
         publishExport()
     }
 
-    /** Puts a fit this source already has onto the player. A stale ticket changes nothing. */
+    /** True when the viewer nudged the delay after [ticket] was issued. A restored delay is not a nudge. */
+    fun nudgedSince(ticket: Long): Boolean = ticket == generation && manualEpoch != epochAtTicket
+
+    /** Puts a fit this source already has onto the player. A stale ticket or a later nudge changes nothing. */
     fun applyKnown(speed: Double, fitDelayMs: Long, ticket: Long): Boolean {
-        if (ticket != generation) return false
+        if (ticket != generation || manualEpoch != epochAtTicket) return false
         if (!speed.isFinite() || speed <= 0.5 || speed >= 1.5) return false
         fit = MpvSubtitleProperties(speed, fitDelayMs, confident = true)
         transport.applyFit(speed, fitDelayMs)

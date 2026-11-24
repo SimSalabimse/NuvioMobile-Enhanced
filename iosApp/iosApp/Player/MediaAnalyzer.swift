@@ -49,6 +49,8 @@ final class MediaAnalyzer: NSObject, NuvioMediaAnalyzerBridge {
 
     private let fileLock = NSLock()
     private var runningFile: String?
+    /// Playback slices only. [cancel] still aborts every job. [cancelPlayback] aborts one generation.
+    private var playbackFlags: [Int64: MediaAnalyzerAbortFlag] = [:]
 
     private func setRunningFile(_ value: String?) {
         fileLock.lock(); runningFile = value; fileLock.unlock()
@@ -137,14 +139,19 @@ final class MediaAnalyzer: NSObject, NuvioMediaAnalyzerBridge {
 
     /// Same clip as fingerprintClip, and it keeps going while a video is playing.
     /// Heat, Low Power Mode, and a low battery still stop it. The audio stays in memory.
+    /// [generation] lets a cancelled slice abort only itself. The result is delivered off the main queue.
     func fingerprintClipDuringPlayback(
         url: String,
         headers: [String: String],
         startMs: Int64,
         endMs: Int64,
+        generation: Int64,
         onDone: @escaping (String?) -> Void
     ) {
         let flag = startJob()
+        flagLock.lock()
+        playbackFlags[generation] = flag
+        flagLock.unlock()
         queue.async {
             MediaAnalyzerQosName.restoreUtility()
             let result = ClipFingerprintRun(
@@ -155,9 +162,20 @@ final class MediaAnalyzer: NSObject, NuvioMediaAnalyzerBridge {
                 abort: flag,
                 allowsPlayback: true
             ).run()
+            self.flagLock.lock()
+            if self.playbackFlags[generation] === flag { self.playbackFlags[generation] = nil }
+            self.flagLock.unlock()
             self.endJob(flag)
-            DispatchQueue.main.async { onDone(result) }
+            DispatchQueue.global(qos: .utility).async { onDone(result) }
         }
+    }
+
+    /// Aborts one playback slice. A full-file analysis on this queue is left running.
+    func cancelPlayback(generation: Int64) {
+        flagLock.lock()
+        let flag = playbackFlags.removeValue(forKey: generation)
+        flagLock.unlock()
+        flag?.set()
     }
 
     func cancel() {
@@ -678,6 +696,10 @@ private final class ClipFingerprintRun {
             return json(["windowComplete": false, "decodedFrames": 0, "decodedSamples": 0])
         }
         if abort.isSet { return nil }
+        // libav logs the opened address at info, including a token in a debrid query.
+        // AV_LOG_QUIET is -8. The level is restored when this slice returns.
+        ClipAddressLog.begin()
+        defer { ClipAddressLog.end() }
         guard let allocated = avformat_alloc_context() else { return nil }
         allocated.pointee.interrupt_callback.callback = { opaque in
             guard let opaque else { return 0 }
@@ -849,6 +871,33 @@ private final class ClipFingerprintRun {
     private func json(_ output: [String: Any]) -> String? {
         guard let data = try? JSONSerialization.data(withJSONObject: output) else { return nil }
         return String(data: data, encoding: .utf8)
+    }
+}
+
+/// libav's default log prints the URL it opens. A slice quiets that, then puts the previous level back.
+/// Nested slices share one saved level. The messages this file writes itself never include the address.
+private enum ClipAddressLog {
+    private static let lock = NSLock()
+    private static var depth = 0
+    private static var savedLevel: Int32 = 0
+
+    static func begin() {
+        lock.lock()
+        if depth == 0 {
+            savedLevel = av_log_get_level()
+            av_log_set_level(-8)
+        }
+        depth += 1
+        lock.unlock()
+    }
+
+    static func end() {
+        lock.lock()
+        depth = max(0, depth - 1)
+        if depth == 0 {
+            av_log_set_level(savedLevel)
+        }
+        lock.unlock()
     }
 }
 
