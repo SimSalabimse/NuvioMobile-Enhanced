@@ -26,8 +26,11 @@ final class BetaSmokeUITests: XCTestCase {
             settings.waitForExistence(timeout: 15),
             "Settings tab was not on screen. Visible buttons: \(visibleButtons(app))"
         )
-        let press = settings.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        press.press(forDuration: 0.2)
+        if settings.isHittable {
+            settings.tap()
+        } else {
+            settings.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
 
         let opened = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "isSelected == true"),

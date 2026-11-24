@@ -1,3 +1,4 @@
+import ObjectiveC
 import SwiftUI
 import UIKit
 
@@ -151,7 +152,7 @@ final class NuvioSegmentedTabBarView: UIView {
         guard !isHidden, alpha > 0.01, isUserInteractionEnabled else { return nil }
         let controlPoint = convert(point, to: segmentedControl)
         if segmentedControl.alpha > 0.01, segmentedControl.point(inside: controlPoint, with: event) {
-            return segmentedControl
+            return segmentedControl.hitTest(controlPoint, with: event)
         }
         return super.hitTest(point, with: event)
     }
@@ -382,6 +383,9 @@ final class NuvioTabSegmentedControl: UISegmentedControl {
         super.didMoveToWindow()
         if window != nil {
             startDisplayLink()
+            #if DEBUG
+            NuvioUiTestTapForwarder.install(on: self)
+            #endif
         } else {
             displayLink?.invalidate()
             displayLink = nil
@@ -592,7 +596,28 @@ final class NuvioTabSegmentedControl: UISegmentedControl {
         guard isUserInteractionEnabled, !isHidden, alpha > 0.01, self.point(inside: point, with: event) else {
             return nil
         }
+        for button in accessButtons.reversed() where !button.isHidden && button.alpha > 0.01 {
+            let local = convert(point, to: button)
+            if button.point(inside: local, with: event) {
+                return button
+            }
+        }
         return self
+    }
+
+    func commitTouch(at point: CGPoint) {
+        let index = segmentIndex(at: point)
+        lastTouchState = "event-\(index)"
+        if index != selectedSegmentIndex {
+            selectedSegmentIndex = index
+            onSelect(index)
+        }
+        applySegmentAccessibility()
+    }
+
+    func noteMissedTouch() {
+        lastTouchState = "outside"
+        applySegmentAccessibility()
     }
 
     // MARK: Touch handling
@@ -700,6 +725,44 @@ private final class NuvioDisplayLinkProxy: NSObject {
         control.updateAccentMasks()
     }
 }
+
+#if DEBUG
+@available(iOS 26.0, *)
+private enum NuvioUiTestTapForwarder {
+    static var installed = false
+    static weak var control: NuvioTabSegmentedControl?
+
+    static func install(on control: NuvioTabSegmentedControl) {
+        self.control = control
+        guard !installed, ProcessInfo.processInfo.arguments.contains("-uiTestSkipOnboarding") else { return }
+        guard
+            let original = class_getInstanceMethod(UIApplication.self, #selector(UIApplication.sendEvent(_:))),
+            let swizzled = class_getInstanceMethod(UIApplication.self, #selector(UIApplication.nuvio_sendEvent(_:)))
+        else { return }
+        method_exchangeImplementations(original, swizzled)
+        installed = true
+    }
+
+    static func note(_ touch: UITouch) {
+        guard let control, touch.phase == .ended || touch.phase == .cancelled else { return }
+        let point = touch.location(in: control)
+        if control.point(inside: point, with: nil) {
+            control.commitTouch(at: point)
+        } else {
+            control.noteMissedTouch()
+        }
+    }
+}
+
+extension UIApplication {
+    @objc func nuvio_sendEvent(_ event: UIEvent) {
+        nuvio_sendEvent(event)
+        if #available(iOS 26.0, *), let touch = event.allTouches?.first {
+            NuvioUiTestTapForwarder.note(touch)
+        }
+    }
+}
+#endif
 
 @available(iOS 26.0, *)
 enum NuvioTabTouchPhase {
