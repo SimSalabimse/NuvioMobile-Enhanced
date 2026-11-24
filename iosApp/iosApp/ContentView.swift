@@ -1564,7 +1564,11 @@ struct AppGateComposeView: UIViewControllerRepresentable {
         return NuvioComposeHost.wrap(controller, backgroundColor: .clear, verticalBar: verticalBar)
     }
 
-    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
+    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
+        // The gate sits above the tab bar. Once the shell is ready it must not keep the taps.
+        uiViewController.view.accessibilityIdentifier = "nuvio-app-gate"
+        uiViewController.view.isUserInteractionEnabled = !appCoordinator.isAppReady
+    }
 }
 
 @available(iOS 16.0, *)

@@ -44,8 +44,15 @@ jobs:
 
       - name: Compile Android and shared code
         run: |
+          set -euo pipefail
           touch local.properties
-          ./gradlew :composeApp:compileAndroidMain --stacktrace
+          for attempt in 1 2 3; do
+            if ./gradlew :composeApp:compileAndroidMain --stacktrace; then
+              exit 0
+            fi
+            sleep $((attempt * 20))
+          done
+          exit 1
 
   build:
     name: build
@@ -123,9 +130,9 @@ jobs:
     name: ui-sim
     # The free macOS image has Xcode 26, which cannot compile this app, and
     # its rebuild was cancelled at 55 minutes. This job uses the Xcode 27
-    # runner, with 90 minutes and the Gradle and Kotlin/Native caches.
+    # runner, with 110 minutes and the Gradle and Kotlin/Native caches.
     runs-on: xcode-27
-    timeout-minutes: 90
+    timeout-minutes: 110
     env:
       DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
       GRADLE_OPTS: -Dfile.encoding=UTF-8

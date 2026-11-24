@@ -147,6 +147,15 @@ final class NuvioSegmentedTabBarView: UIView {
         collapsedLongPress.isEnabled = false
     }
 
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard !isHidden, alpha > 0.01, isUserInteractionEnabled else { return nil }
+        let controlPoint = convert(point, to: segmentedControl)
+        if segmentedControl.alpha > 0.01, segmentedControl.point(inside: controlPoint, with: event) {
+            return segmentedControl
+        }
+        return super.hitTest(point, with: event)
+    }
+
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
@@ -271,6 +280,8 @@ final class NuvioTabSegmentedControl: UISegmentedControl {
     private static let accentViewTag = 8_802
     private var accessTitles: [String] = []
     private var accessIdentifiers: [String] = []
+    private var accessButtons: [UIButton] = []
+    private var lastTouchState = "idle"
     private var baseViews: [NuvioTabItemContentView] = []
     private var accentViews: [NuvioTabItemContentView] = []
     private var originalIndex: Int?
@@ -407,13 +418,53 @@ final class NuvioTabSegmentedControl: UISegmentedControl {
     private func applySegmentAccessibility() {
         let segments = segmentViews()
         guard segments.count == accessIdentifiers.count, segments.count == accessTitles.count else { return }
-        for (index, segment) in segments.enumerated() {
-            segment.isAccessibilityElement = true
-            segment.accessibilityLabel = accessTitles[index]
-            segment.accessibilityIdentifier = accessIdentifiers[index]
-            segment.accessibilityTraits = index == selectedSegmentIndex ? [.button, .selected] : .button
+        if accessButtons.count != segments.count {
+            accessButtons.forEach { $0.removeFromSuperview() }
+            accessButtons = segments.indices.map { index in
+                let button = UIButton(type: .custom)
+                button.tag = index
+                button.isUserInteractionEnabled = false
+                button.backgroundColor = .clear
+                addSubview(button)
+                return button
+            }
         }
-        accessibilityElements = segments
+        for (index, segment) in segments.enumerated() {
+            // The private segment does not keep the selected trait XCTest reads.
+            segment.isAccessibilityElement = false
+            segment.accessibilityIdentifier = nil
+            let button = accessButtons[index]
+            let frame = segment.convert(segment.bounds, to: self)
+            if button.frame != frame {
+                button.frame = frame
+            }
+            button.isAccessibilityElement = true
+            button.accessibilityLabel = accessTitles[index]
+            button.accessibilityIdentifier = accessIdentifiers[index]
+            button.accessibilityValue = lastTouchState
+            button.isSelected = index == selectedSegmentIndex
+        }
+    }
+
+    override func accessibilityElementCount() -> Int {
+        accessButtons.isEmpty ? super.accessibilityElementCount() : accessButtons.count
+    }
+
+    override func accessibilityElement(at index: Int) -> Any? {
+        guard accessButtons.indices.contains(index) else {
+            return super.accessibilityElement(at: index)
+        }
+        let button = accessButtons[index]
+        button.isSelected = index == selectedSegmentIndex
+        button.accessibilityValue = lastTouchState
+        return button
+    }
+
+    override func index(ofAccessibilityElement element: Any) -> Int {
+        guard let button = element as? UIButton, let index = accessButtons.firstIndex(of: button) else {
+            return super.index(ofAccessibilityElement: element)
+        }
+        return index
     }
 
     private func injectItemViews() {
@@ -564,6 +615,7 @@ final class NuvioTabSegmentedControl: UISegmentedControl {
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         isTrackingTouch = true
+        lastTouchState = "began"
         wakeDisplayLink()
         if let touch = touches.first, movesLensOnTouchDown {
             originalIndex = selectedSegmentIndex
@@ -587,6 +639,7 @@ final class NuvioTabSegmentedControl: UISegmentedControl {
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         wakeDisplayLink()
+        lastTouchState = "ended-\(selectedSegmentIndex)"
         if movesLensOnTouchDown, let originalIndex {
             if selectedSegmentIndex != originalIndex {
                 onSelect(selectedSegmentIndex)
@@ -602,6 +655,7 @@ final class NuvioTabSegmentedControl: UISegmentedControl {
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
         wakeDisplayLink()
+        lastTouchState = "cancelled"
         if movesLensOnTouchDown, let originalIndex {
             selectedSegmentIndex = originalIndex
         }

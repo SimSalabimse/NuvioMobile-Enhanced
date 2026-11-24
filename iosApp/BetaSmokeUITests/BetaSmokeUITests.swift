@@ -26,11 +26,8 @@ final class BetaSmokeUITests: XCTestCase {
             settings.waitForExistence(timeout: 15),
             "Settings tab was not on screen. Visible buttons: \(visibleButtons(app))"
         )
-        if settings.isHittable {
-            settings.tap()
-        } else {
-            settings.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-        }
+        let press = settings.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        press.press(forDuration: 0.2)
 
         let opened = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "isSelected == true"),
@@ -39,13 +36,20 @@ final class BetaSmokeUITests: XCTestCase {
         XCTAssertEqual(
             XCTWaiter().wait(for: [opened], timeout: 15),
             .completed,
-            "Settings did not open. \(describe(settings))"
+            "Settings did not open. \(describe(settings)) \(describeGate(app))"
         )
     }
 
     private func describe(_ element: XCUIElement) -> String {
         let frame = element.frame
-        return "hittable=\(element.isHittable) selected=\(element.isSelected) frame=(\(frame.minX),\(frame.minY) \(frame.width)x\(frame.height))"
+        let value = element.value as? String ?? ""
+        return "hittable=\(element.isHittable) selected=\(element.isSelected) value=\(value) frame=(\(frame.minX),\(frame.minY) \(frame.width)x\(frame.height))"
+    }
+
+    private func describeGate(_ app: XCUIApplication) -> String {
+        let gate = app.otherElements["nuvio-app-gate"]
+        let frame = gate.frame
+        return "gateExists=\(gate.exists) gateHittable=\(gate.isHittable) gateFrame=(\(frame.minX),\(frame.minY) \(frame.width)x\(frame.height))"
     }
 
     private func visibleButtons(_ app: XCUIApplication) -> String {
