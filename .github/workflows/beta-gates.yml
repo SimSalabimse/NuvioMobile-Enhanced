@@ -116,8 +116,16 @@ jobs:
 
       - name: Run host tests
         run: |
+          set -euo pipefail
           touch local.properties
-          ./gradlew :composeApp:testAndroidHostTest --continue --stacktrace
+          # Robolectric's Android image download sometimes resets mid-suite.
+          for attempt in 1 2; do
+            if ./gradlew :composeApp:testAndroidHostTest --continue --stacktrace; then
+              exit 0
+            fi
+            sleep $((attempt * 20))
+          done
+          exit 1
 
       - name: Run sync-worker tests
         working-directory: sync-worker
