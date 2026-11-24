@@ -708,6 +708,7 @@ enum NuvioTabTouchPhase {
 
 /// XCTest delivers the press to this button. It is not the hit target for a finger:
 /// the bar's hitTest returns the segmented control so the lens can still follow a drag.
+@available(iOS 26.0, *)
 final class NuvioTabAccessButton: UIButton {
     weak var control: NuvioTabSegmentedControl?
 
