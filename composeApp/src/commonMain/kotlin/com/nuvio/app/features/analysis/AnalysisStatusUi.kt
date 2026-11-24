@@ -20,6 +20,14 @@ import nuvio.composeapp.generated.resources.analysis_status_elapsed_under
 import nuvio.composeapp.generated.resources.analysis_status_done
 import nuvio.composeapp.generated.resources.analysis_status_partly
 import nuvio.composeapp.generated.resources.analysis_status_failed
+import nuvio.composeapp.generated.resources.analysis_next_intro
+import nuvio.composeapp.generated.resources.analysis_next_credits
+import nuvio.composeapp.generated.resources.analysis_next_subtitles
+import nuvio.composeapp.generated.resources.analysis_next_paused_disk
+import nuvio.composeapp.generated.resources.analysis_next_paused_power
+import nuvio.composeapp.generated.resources.analysis_next_paused_battery
+import nuvio.composeapp.generated.resources.analysis_next_paused_heat
+import nuvio.composeapp.generated.resources.analysis_next_done
 import nuvio.composeapp.generated.resources.analysis_part_intro
 import nuvio.composeapp.generated.resources.analysis_part_credits
 import nuvio.composeapp.generated.resources.analysis_part_a11y
@@ -178,13 +186,20 @@ private fun runningDetail(stage: AnalysisStage, activity: String, sinceEpochMs: 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AnalysisStatusRow(item: DownloadItem) {
-    if (item.status != DownloadStatus.Completed || !MediaAnalysisStatus.supported) return
+    if (item.status != DownloadStatus.Completed) return
+    val nextStatus by NextEpisodeAnalysisScheduler.status.collectAsStateWithLifecycle()
+    val nextText = nextEpisodeStatusText(item, nextStatus)
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    if (!MediaAnalysisStatus.supported) {
+        if (nextText != null) StatusLine(Icons.Rounded.GraphicEq, nextText, muted)
+        return
+    }
     val job by MediaAnalysisStatus.job.collectAsStateWithLifecycle()
     val failures by MediaAnalysisStatus.failures.collectAsStateWithLifecycle()
     val revision by MediaAnalysisStatus.revision.collectAsStateWithLifecycle()
     val flags by MediaAnalysisSettings.flags.collectAsStateWithLifecycle()
     val status = remember(item.id, item.fileName, job, failures, revision, flags) { MediaAnalysisStatus.statusFor(item) }
-    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
     when (status) {
         ItemAnalysisStatus.Unsupported -> Unit
         ItemAnalysisStatus.Queued -> StatusLine(Icons.Rounded.Schedule, stringResource(Res.string.analysis_status_queued), muted)
@@ -219,6 +234,26 @@ fun AnalysisStatusRow(item: DownloadItem) {
             )
             status.parts?.let { PartChips(item, it) }
         }
+    }
+        if (nextText != null) StatusLine(Icons.Rounded.GraphicEq, nextText, muted)
+    }
+}
+
+@Composable
+private fun nextEpisodeStatusText(item: DownloadItem, status: NextEpisodeAnalysisStatus): String? {
+    if (!nextEpisodeStatusMatches(status, item.parentMetaId, item.seasonNumber, item.episodeNumber, item.id)) {
+        return null
+    }
+    return when (status.token) {
+        "intro" -> stringResource(Res.string.analysis_next_intro)
+        "credits" -> stringResource(Res.string.analysis_next_credits)
+        "subtitles" -> stringResource(Res.string.analysis_next_subtitles)
+        "paused-disk" -> stringResource(Res.string.analysis_next_paused_disk)
+        "paused-power" -> stringResource(Res.string.analysis_next_paused_power)
+        "paused-battery" -> stringResource(Res.string.analysis_next_paused_battery)
+        "paused-heat" -> stringResource(Res.string.analysis_next_paused_heat)
+        "done" -> stringResource(Res.string.analysis_next_done)
+        else -> null
     }
 }
 

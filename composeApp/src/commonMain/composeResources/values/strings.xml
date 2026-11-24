@@ -3286,6 +3286,14 @@
     <string name="analysis_status_done">Analysed</string>
     <string name="analysis_status_partly">Partly analysed, more queued</string>
     <string name="analysis_status_failed">Analysis failed: %1$s</string>
+    <string name="analysis_next_intro">Checking the next episode intro</string>
+    <string name="analysis_next_credits">Checking the next episode credits</string>
+    <string name="analysis_next_subtitles">Syncing the next episode subtitles</string>
+    <string name="analysis_next_paused_disk">Next episode paused, low on space</string>
+    <string name="analysis_next_paused_power">Next episode paused, Low Power Mode</string>
+    <string name="analysis_next_paused_battery">Next episode paused, low battery</string>
+    <string name="analysis_next_paused_heat">Next episode paused, device is warm</string>
+    <string name="analysis_next_done">Next episode is ready</string>
     <string name="analysis_part_intro">Intro</string>
     <string name="analysis_part_credits">Credits</string>
     <string name="analysis_part_a11y">%1$s: %2$s</string>

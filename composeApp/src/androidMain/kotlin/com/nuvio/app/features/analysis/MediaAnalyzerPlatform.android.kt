@@ -10,5 +10,6 @@ internal actual object MediaAnalyzerPlatform {
     actual fun lastError(): String? = null
     actual suspend fun makeThumbnails(fileUri: String, outputPrefix: String, durationMs: Long, intervalMs: Long, tileWidth: Int): String? = null
     actual suspend fun fingerprintClip(url: String, headers: Map<String, String>, startMs: Long, endMs: Long): String? = null
+    actual suspend fun fingerprintClipDuringPlayback(url: String, headers: Map<String, String>, startMs: Long, endMs: Long): String? = null
     actual suspend fun analyzeIntroWindow(fileUri: String, windowMs: Long, startMs: Long): String? = null
 }

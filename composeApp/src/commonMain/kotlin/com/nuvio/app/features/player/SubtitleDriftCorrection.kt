@@ -70,6 +70,28 @@ internal class SubtitleDriftCorrection(
         publishExport()
     }
 
+    /** A delay loaded for this episode. It is not a nudge, so a measurement can still run. */
+    fun noteRestoredDelay(delayMs: Long) {
+        userDelayMs = delayMs
+        transport.applyUserDelay(delayMs)
+        publishExport()
+    }
+
+    /** Puts a fit this source already has onto the player. A stale ticket changes nothing. */
+    fun applyKnown(speed: Double, fitDelayMs: Long, ticket: Long): Boolean {
+        if (ticket != generation) return false
+        if (!speed.isFinite() || speed <= 0.5 || speed >= 1.5) return false
+        fit = MpvSubtitleProperties(speed, fitDelayMs, confident = true)
+        transport.applyFit(speed, fitDelayMs)
+        publishExport()
+        return true
+    }
+
+    fun rememberableFit(): Pair<Double, Long>? {
+        if (!fit.confident) return null
+        return fit.subSpeed to fit.subDelayMs
+    }
+
     fun noteTrackOrStreamChanged() {
         generation += 1
         fit = MpvSubtitleProperties(1.0, 0L, confident = false)

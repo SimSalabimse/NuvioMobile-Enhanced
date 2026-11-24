@@ -135,6 +135,31 @@ final class MediaAnalyzer: NSObject, NuvioMediaAnalyzerBridge {
         }
     }
 
+    /// Same clip as fingerprintClip, and it keeps going while a video is playing.
+    /// Heat, Low Power Mode, and a low battery still stop it. The audio stays in memory.
+    func fingerprintClipDuringPlayback(
+        url: String,
+        headers: [String: String],
+        startMs: Int64,
+        endMs: Int64,
+        onDone: @escaping (String?) -> Void
+    ) {
+        let flag = startJob()
+        queue.async {
+            MediaAnalyzerQosName.restoreUtility()
+            let result = ClipFingerprintRun(
+                url: url,
+                headers: headers,
+                startMs: startMs,
+                endMs: endMs,
+                abort: flag,
+                allowsPlayback: true
+            ).run()
+            self.endJob(flag)
+            DispatchQueue.main.async { onDone(result) }
+        }
+    }
+
     func cancel() {
         abortAll()
     }
@@ -285,9 +310,11 @@ private final class MediaAnalysisRun {
         self.startMs = startMs
     }
 
-    /// The same heat rule as a full pass: serious, critical, Low Power Mode,
-    /// or fair and above while a download is transferring.
-    private static func introPowerAbort() -> Bool { MediaAnalyzerThrottle.heatBlocksStart() }
+    /// The same heat rule as a full pass, plus a battery under 20% that is not charging.
+    /// Playing a video does not stop this window.
+    private static func introPowerAbort() -> Bool {
+        MediaAnalyzerThrottle.heatBlocksStart() || MediaAnalyzerThrottle.batteryIsLow()
+    }
 
     func run() -> String? {
         // Drop back to the queue's utility class when this job ends, including on failure,
@@ -505,9 +532,31 @@ private final class MediaAnalysisRun {
         guard let acc = accumulator else { return nil }
         if let limit = windowMs {
             let decoded = acc.decodedMs
+            let containerMs = durationMs > 0 ? durationMs : decoded
+            let atEnd = startMs < 0
+            var output: [String: Any] = [
+                "durationMs": containerMs,
+                "energyStepMs": Self.stepMs,
+                "fingerprintStepMs": Self.stepMs,
+                "qos": "utility",
+            ]
+            if atEnd {
+                let origin = max(Int64(0), containerMs - limit)
+                let samples = acc.tailSamples.count >= acc.headSamples.count ? acc.tailSamples : acc.headSamples
+                if let print = Fingerprinter.fingerprint(samples: samples, rate: acc.fingerprintRate) {
+                    output["tail"] = print
+                    output["tailStartMs"] = origin
+                }
+            } else {
+                output["energy"] = Data(acc.energyLevels).base64EncodedString()
+                if let print = Fingerprinter.fingerprint(samples: acc.headSamples, rate: acc.fingerprintRate) {
+                    output["head"] = print
+                }
+            }
             acc.releaseFinished()
             log("intro window decodedMs=\(decoded) limitMs=\(limit)")
-            return "{\"durationMs\":\(decoded),\"qos\":\"utility\"}"
+            guard let data = try? JSONSerialization.data(withJSONObject: output) else { return nil }
+            return String(data: data, encoding: .utf8)
         }
         let measuredMs = durationMs > 0 ? durationMs : acc.decodedMs
         let elapsedNs = DispatchTime.now().uptimeNanoseconds &- startedNs
@@ -603,13 +652,23 @@ private final class ClipFingerprintRun {
     private let startMs: Int64
     private let endMs: Int64
     private let abort: MediaAnalyzerAbortFlag
+    /// When set, a playing video does not stop the clip. Heat and a low battery still do.
+    private let allowsPlayback: Bool
 
-    init(url: String, headers: [String: String], startMs: Int64, endMs: Int64, abort: MediaAnalyzerAbortFlag) {
+    init(
+        url: String,
+        headers: [String: String],
+        startMs: Int64,
+        endMs: Int64,
+        abort: MediaAnalyzerAbortFlag,
+        allowsPlayback: Bool = false
+    ) {
         self.url = url
         self.headers = headers
         self.startMs = startMs
         self.endMs = endMs
         self.abort = abort
+        self.allowsPlayback = allowsPlayback
     }
 
     func run() -> String? {
@@ -692,9 +751,11 @@ private final class ClipFingerprintRun {
             av_frame_free(&framePointer)
         }
         while !abort.isSet, !reachedEnd, av_read_frame(context, packet) >= 0 {
-            if MediaAnalyzerThrottle.currentLevel() > 0 {
+            let powerAbort = MediaAnalyzerThrottle.heatBlocksStart() || MediaAnalyzerThrottle.batteryIsLow()
+            let playbackAbort = !allowsPlayback && MediaAnalyzerThrottle.currentLevel() > 0
+            if powerAbort || playbackAbort {
                 accumulator?.releaseFinished()
-                log("clip paused")
+                log(powerAbort ? "clip paused power" : "clip paused")
                 return nil
             }
             if packet.pointee.stream_index == audioIndex, avcodec_send_packet(codecContext, packet) >= 0 {
@@ -762,12 +823,15 @@ private final class ClipFingerprintRun {
             accumulator?.releaseFinished()
             return nil
         }
+        let energy = Data(acc.energyLevels).base64EncodedString()
         let decodedMs = acc.decodedMs
         acc.releaseFinished()
         let output: [String: Any] = [
             "startMs": originMs,
             "stepMs": MediaAnalysisRun.stepMs,
             "fingerprint": print,
+            "energy": energy,
+            "energyStepMs": MediaAnalysisRun.stepMs,
             "decodedFrames": decodedFrames,
             "decodedSamples": decodedSamples,
             "stopReason": stopReason,
@@ -873,6 +937,7 @@ enum NuvioMediaAnalyzerRegistration {
 
     static func register() {
         NuvioMediaAnalyzerRegistry.shared.register(analyzer: shared)
+        MediaAnalyzerThrottle.startBatteryWatch()
     }
 }
 
@@ -932,6 +997,66 @@ private enum MediaAnalyzerThrottle {
         if thermal == .serious || thermal == .critical { return true }
         if ProcessInfo.processInfo.isLowPowerModeEnabled { return true }
         return MediaAnalyzerQosName.transferActive() && thermal != .nominal
+    }
+
+    private static let batteryLock = NSLock()
+    private static var cachedBatteryLow = false
+    private static var batteryWatchStarted = false
+
+    /// Under 20% and not charging. Unknown level does not count as low.
+    /// UIDevice is read on the main thread. The decode queue uses the cached value.
+    static func batteryIsLow() -> Bool {
+        if Thread.isMainThread {
+            refreshBatteryLow()
+        } else {
+            batteryLock.lock()
+            let started = batteryWatchStarted
+            batteryLock.unlock()
+            if !started { startBatteryWatch() }
+        }
+        batteryLock.lock()
+        defer { batteryLock.unlock() }
+        return cachedBatteryLow
+    }
+
+    static func startBatteryWatch() {
+        let start = {
+            batteryLock.lock()
+            let already = batteryWatchStarted
+            if !already { batteryWatchStarted = true }
+            batteryLock.unlock()
+            guard !already else { return }
+            UIDevice.current.isBatteryMonitoringEnabled = true
+            refreshBatteryLow()
+            let center = NotificationCenter.default
+            center.addObserver(forName: UIDevice.batteryLevelDidChangeNotification, object: nil, queue: .main) { _ in
+                refreshBatteryLow()
+            }
+            center.addObserver(forName: UIDevice.batteryStateDidChangeNotification, object: nil, queue: .main) { _ in
+                refreshBatteryLow()
+            }
+        }
+        if Thread.isMainThread {
+            start()
+        } else {
+            DispatchQueue.main.async(execute: start)
+        }
+    }
+
+    private static func refreshBatteryLow() {
+        let device = UIDevice.current
+        device.isBatteryMonitoringEnabled = true
+        let low: Bool
+        switch device.batteryState {
+        case .charging, .full:
+            low = false
+        default:
+            let level = device.batteryLevel
+            low = level >= 0 && level < 0.20
+        }
+        batteryLock.lock()
+        cachedBatteryLow = low
+        batteryLock.unlock()
     }
 
     static func yield(abort: MediaAnalyzerAbortFlag, workedNs: UInt64) -> UInt64 {

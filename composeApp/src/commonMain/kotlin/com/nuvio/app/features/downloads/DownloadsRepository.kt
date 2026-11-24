@@ -732,6 +732,9 @@ object DownloadsRepository {
                     videoPlaying = true,
                 )
             }
+            runCatching {
+                com.nuvio.app.features.analysis.NextEpisodeAnalysisScheduler.onDownloadCompleted(downloadId)
+            }
         }
     }
 

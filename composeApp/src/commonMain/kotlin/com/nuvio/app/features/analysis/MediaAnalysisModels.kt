@@ -104,6 +104,13 @@ internal data class MediaAnalysisResult(
      * external databases the player applies at playback.
      */
     val chapterTypes: Set<String> = emptySet(),
+    /**
+     * Last measured subtitle fit for [subtitleSyncSourceKey]. Speed is the mpv factor.
+     * Delay is milliseconds added after the speed. Null until a pass has measured one.
+     */
+    val subtitleSyncSpeed: Double? = null,
+    val subtitleSyncDelayMs: Long? = null,
+    val subtitleSyncSourceKey: String? = null,
 )
 
 /** How sure a detected intro or credits range is. More agreeing siblings win, then fewer bit errors. */

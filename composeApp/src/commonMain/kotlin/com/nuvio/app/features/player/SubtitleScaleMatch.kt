@@ -64,8 +64,9 @@ internal fun observeSubtitleScale(
 }
 
 /**
- * Picks one scale from the early windows, then uses only that scale later.
- * Two early windows must agree before a non-identity scale is kept.
+ * Every confident window votes for a scale, then later windows use only that scale.
+ * Two windows must agree before a non-identity scale is kept. One vote stays at
+ * identity so a short constant delay is not mistaken for a frame rate.
  */
 internal fun observeSubtitleWindows(
     centersMs: List<Long>,
@@ -74,10 +75,12 @@ internal fun observeSubtitleWindows(
 ): List<SubtitleMatchObservation> {
     if (centersMs.isEmpty() || cues.isEmpty()) return emptyList()
     val scales = candidateSubtitleScales()
-    val coarse = centersMs.take(2)
+    // Every confident window votes. The first minutes of a file often have only one
+    // clean window, and stopping there used to throw the frame-rate match away.
     val votes = mutableMapOf<Double, Int>()
-    coarse.forEach { center ->
+    centersMs.forEach { center ->
         val samples = samplesAt(center)
+        if (samples.isEmpty()) return@forEach
         val chosen = observeSubtitleScale(center, samples, cues, scales) ?: return@forEach
         if (!chosen.confident) return@forEach
         val scale = impliedScale(center, chosen.offsetMs) ?: return@forEach
