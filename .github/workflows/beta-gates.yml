@@ -13,6 +13,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: beta-gates-${{ github.event.pull_request.number || github.ref }}
@@ -131,16 +132,23 @@ jobs:
         working-directory: sync-worker
         run: npm ci && npm test
 
+      - name: Run the upstream guard regression
+        run: bash scripts/check-beta-upstream-guard-test.sh
+
       - name: Run the upstream guard
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: bash scripts/check-beta-upstream-guard.sh
 
   ui-sim:
     name: ui-sim
-    # The free macOS image has Xcode 26, which cannot compile this app, and
-    # its rebuild was cancelled at 55 minutes. This job uses the Xcode 27
-    # runner, with 110 minutes and the Gradle and Kotlin/Native caches.
+    # The free macOS image has Xcode 26, which cannot compile this app.
+    # Run 45455977857 cancelled this job at 110 minutes while xcodebuild was
+    # still packaging the test runner, after the Kotlin framework compile had
+    # finished and before the one launch smoke test started. 150 minutes
+    # matches the simulator compile job.
     runs-on: xcode-27
-    timeout-minutes: 110
+    timeout-minutes: 150
     env:
       DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
       GRADLE_OPTS: -Dfile.encoding=UTF-8
