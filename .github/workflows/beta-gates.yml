@@ -136,11 +136,14 @@ jobs:
 
   ui-sim:
     name: ui-sim
-    # The free macOS image has Xcode 26, which cannot compile this app, and
-    # its rebuild was cancelled at 55 minutes. This job uses the Xcode 27
-    # runner, with 110 minutes and the Gradle and Kotlin/Native caches.
+    # The free macOS image has Xcode 26, which cannot compile this app.
+    # Link the simulator framework with Gradle before xcodebuild. The same
+    # compile inside the Xcode script phase was still running when the 110
+    # minute job limit cancelled run 45374541464; a standalone Gradle compile
+    # on this runner finishes, and the script then leaves that task up to date.
+    # 150 minutes matches the simulator compile job.
     runs-on: xcode-27
-    timeout-minutes: 110
+    timeout-minutes: 150
     env:
       DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
       GRADLE_OPTS: -Dfile.encoding=UTF-8
@@ -207,6 +210,9 @@ jobs:
             sleep $((attempt * 5))
           done
           exit 1
+
+      - name: Link the iOS simulator framework
+        run: ./gradlew :composeApp:linkDebugFrameworkIosSimulatorArm64 -Pnuvio.ios.distribution=appstore --stacktrace
 
       - name: Run the Home and Settings smoke test
         run: |
