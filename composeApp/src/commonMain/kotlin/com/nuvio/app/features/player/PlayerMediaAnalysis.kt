@@ -13,6 +13,7 @@ import com.nuvio.app.features.analysis.MediaAnalysisSettings
 import com.nuvio.app.features.analysis.MediaAnalysisStore
 import com.nuvio.app.features.analysis.decodeEnergy
 import com.nuvio.app.features.analysis.loudnessGainDb
+import com.nuvio.app.features.downloads.DownloadSubtitles
 import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.downloads.downloadOpenedBySource
 import com.nuvio.app.features.player.skip.OwnTheIntroDbLedger
@@ -238,6 +239,39 @@ internal fun energySubtitleObservations(
     return observeSubtitleWindows(centers, { center -> storedEnergyWindow(levels, step, center) }, cues)
 }
 
+/**
+ * The fit for [cues] against stored energy.
+ * A short track can make a steady delay look like a frame-rate scale. When the identity
+ * matcher agrees at two points, that delay is kept and the scale is not.
+ */
+internal fun fitSubtitleEnergy(analysis: MediaAnalysisResult, cues: List<SubtitleSyncCue>): MpvSubtitleProperties {
+    val fitted = fitObservations(energySubtitleObservations(analysis, cues).mapNotNull { it.toAnchor() })
+    val steady = steadyIdentityDelayMs(analysis, cues)
+    if (steady != null && abs(fitted.subSpeed - 1.0) > 0.01) {
+        return MpvSubtitleProperties(1.0, steady, confident = true)
+    }
+    return fitted
+}
+
+private fun steadyIdentityDelayMs(analysis: MediaAnalysisResult, cues: List<SubtitleSyncCue>): Long? {
+    val levels = decodeEnergy(analysis.energy)
+    if (levels.isEmpty() || cues.isEmpty()) return null
+    val step = analysis.energyStepMs.coerceAtLeast(1)
+    val duration = levels.size.toLong() * step
+    val centers = listOf(0.2, 0.6).map { fraction -> (duration * fraction).toLong() }
+    val offsets = centers.mapNotNull { center ->
+        val observed = observeSubtitleScale(
+            videoMs = center,
+            samples = storedEnergyWindow(levels, step, center),
+            cues = cues,
+            scales = listOf(1.0),
+        ) ?: return@mapNotNull null
+        if (!observed.confident || offsetSitsOnSearchWall(observed.offsetMs)) null else observed.offsetMs
+    }
+    if (offsets.size < 2 || abs(offsets[0] - offsets[1]) > 1_500L) return null
+    return (offsets[0] + offsets[1]) / 2
+}
+
 @Composable
 internal fun PlayerScreenRuntime.BindMediaAnalysisEffects() {
     val flags by MediaAnalysisSettings.flags.collectAsStateWithLifecycle()
@@ -251,39 +285,64 @@ internal fun PlayerScreenRuntime.BindMediaAnalysisEffects() {
         controller.setLoudnessGainDb(gain)
     }
 
-    // Subtitle sync: when an addon subtitle is picked on an analysed file and no delay is set yet.
-    LaunchedEffect(selectedAddonSubtitleId, useCustomSubtitles, activeSourceUrl, syncOn) {
-        if (!syncOn || !useCustomSubtitles) return@LaunchedEffect
-        val subtitle = selectedAddonSubtitle ?: return@LaunchedEffect
-        val analysis = currentLocalAnalysis()?.takeIf { !it.energy.isNullOrEmpty() } ?: return@LaunchedEffect
+    // Subtitle sync for the selected row, and for a downloaded sidecar when that is what is on screen.
+    LaunchedEffect(
+        selectedAddonSubtitleId,
+        useCustomSubtitles,
+        activeSourceUrl,
+        syncOn,
+        externalSubtitles,
+        playerSettingsUiState.preferredSubtitleLanguage,
+    ) {
+        if (!syncOn) return@LaunchedEffect
+        val subtitle = subtitleSyncCandidate(
+            selected = selectedAddonSubtitle,
+            useCustomSubtitles = useCustomSubtitles,
+            external = externalSubtitles,
+            sourceUrl = activeSourceUrl,
+            preferredLanguage = playerSettingsUiState.preferredSubtitleLanguage,
+        ) ?: return@LaunchedEffect
+        val analysis = currentLocalAnalysis()
         delay(1_500)
-        if (subtitleDelayMs != 0) return@LaunchedEffect
         val ticket = subtitleDrift.begin()
         val job = coroutineContext[Job]
-        val cueText = try {
-            httpGetTextWithHeaders(url = subtitle.url, headers = emptyMap())
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: Throwable) {
-            null
-        }
+        val cueText = loadSubtitleCueText(activeSourceUrl, subtitle.url)
         val cues = if (cueText.isNullOrEmpty()) {
             emptyList()
         } else {
             PlayerSubtitleCueParser.parse(cueText, subtitle.url)
         }
-        if (cues.isEmpty() || job?.isActive == false || !subtitleDrift.isCurrent(ticket)) return@LaunchedEffect
-        val outcome = subtitleDrift.correct(
-            source = SubtitleObservationSource { energySubtitleObservations(analysis, cues) },
+        if (job?.isActive == false || !subtitleDrift.isCurrent(ticket)) return@LaunchedEffect
+        val (provider, language, release) = subtitleSyncIdentity(subtitle)
+        val outcome = correctSubtitleDrift(
+            analysis = analysis,
+            cues = cues,
+            correction = subtitleDrift,
             ticket = ticket,
-            provider = subtitle.addonName,
-            release = subtitle.label,
-            automatic = true,
+            provider = provider,
+            language = language,
+            release = release,
             cancelled = { job?.isActive == false || !subtitleDrift.isCurrent(ticket) },
         )
-        if (outcome != SubtitleDriftOutcome.Applied || selectedAddonSubtitle?.url != subtitle.url) return@LaunchedEffect
-        if (subtitleDelayMs != 0) return@LaunchedEffect
+        val measured = outcome == SubtitleDriftOutcome.Applied &&
+            !analysis?.energy.isNullOrEmpty() &&
+            cues.isNotEmpty()
+        if (!measured) return@LaunchedEffect
         NuvioToastController.show("Subtitles synced to audio")
         InAppLogger.info("Analysis", "subtitle sync applied")
+    }
+}
+
+internal suspend fun loadSubtitleCueText(videoUri: String, subtitleUrl: String): String? {
+    if (subtitleUrl.isLocalSubtitleUri()) {
+        if (!videoUri.startsWith("file:")) return null
+        return DownloadSubtitles.textFor(videoUri, subtitleUrl)
+    }
+    return try {
+        httpGetTextWithHeaders(url = subtitleUrl, headers = emptyMap())
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Throwable) {
+        null
     }
 }

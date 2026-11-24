@@ -42,6 +42,7 @@ import com.nuvio.app.features.player.skip.intervalsAtSeekPositions
 import com.nuvio.app.features.analysis.CREDITS_WINDOW_MS
 import com.nuvio.app.features.analysis.INTRO_WINDOW_MS
 import com.nuvio.app.features.analysis.LateMark
+import com.nuvio.app.features.analysis.NextEpisodeAnalysisScheduler
 import com.nuvio.app.features.analysis.NextUpAnalysis
 import com.nuvio.app.features.analysis.autoplayStarts
 import com.nuvio.app.features.analysis.autoplayWaitMillis
@@ -314,7 +315,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         subtitleDrift.noteTrackOrStreamChanged()
         val storedDelay = PlayerTrackPreferenceStorage.loadSubtitleDelayMs(playbackSession.videoId) ?: 0
         subtitleDelayMs = storedDelay
-        subtitleDrift.noteManualDelay(storedDelay.toLong())
+        subtitleDrift.noteRestoredDelay(storedDelay.toLong())
         subtitleAutoSyncState = SubtitleAutoSyncUiState()
     }
 
@@ -1061,6 +1062,29 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
                 } else null,
             )
         } else null
+    }
+
+    LaunchedEffect(
+        nextEpisodeInfo?.videoId,
+        nextEpisodeInfo?.season,
+        nextEpisodeInfo?.episode,
+        nextEpisodeInfo?.hasAired,
+    ) {
+        val next = nextEpisodeInfo
+        if (next == null || !next.hasAired || parentMetaId.isBlank()) {
+            NextEpisodeAnalysisScheduler.cancelWatch()
+            return@LaunchedEffect
+        }
+        NextEpisodeAnalysisScheduler.watchPlayingNext(
+            parentMetaId = parentMetaId,
+            season = next.season,
+            episode = next.episode,
+            videoId = next.videoId,
+        )
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { NextEpisodeAnalysisScheduler.cancelWatch() }
     }
 
     LaunchedEffect(playbackSnapshot.isEnded) {

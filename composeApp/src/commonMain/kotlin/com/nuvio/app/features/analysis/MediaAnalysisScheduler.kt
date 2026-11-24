@@ -130,8 +130,13 @@ internal expect object MediaAnalyzerPlatform {
      */
     suspend fun fingerprintClip(url: String, headers: Map<String, String>, startMs: Long, endMs: Long): String?
     /**
-     * Decodes only the first [windowMs] of a local file, at utility priority.
-     * The caller does not store the result: a short window is not a full fingerprint.
+     * Same window as [fingerprintClip], but it keeps going while a video is playing.
+     * Heat, Low Power Mode, and a low battery still stop it. The audio stays in memory.
+     */
+    suspend fun fingerprintClipDuringPlayback(url: String, headers: Map<String, String>, startMs: Long, endMs: Long): String?
+    /**
+     * Decodes one window of a local file at utility priority.
+     * The JSON includes that window's energy and fingerprint so a next-episode pass can store it.
      */
     suspend fun analyzeIntroWindow(fileUri: String, windowMs: Long, startMs: Long): String?
 }
@@ -143,6 +148,9 @@ internal data class RawClipFingerprint(
     val decodedFrames: Int = 0,
     val decodedSamples: Int = 0,
     val fingerprint: String? = null,
+    /** Speech-energy bytes for this window, same encoding as a full-file analysis. */
+    val energy: String? = null,
+    val energyStepMs: Int = 100,
     /** False when the decoder refused a window longer than the budget instead of truncating it. */
     val windowComplete: Boolean = true,
     /** Why decoding stopped. Anything other than window-end means the fingerprint is not the whole window. */

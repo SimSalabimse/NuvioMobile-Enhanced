@@ -15,6 +15,8 @@ internal enum class AnalysisThermal {
 internal data class AnalysisPowerSnapshot(
     val thermal: AnalysisThermal,
     val lowPowerMode: Boolean,
+    /** Battery under 20% and not charging. Unknown or charging is false. */
+    val lowBattery: Boolean = false,
 )
 
 internal fun analysisPauseReason(

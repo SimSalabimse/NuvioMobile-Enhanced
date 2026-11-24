@@ -5,7 +5,9 @@ import com.nuvio.app.features.player.PlayerSubtitleCueParser
 import com.nuvio.app.features.player.SubtitleAddonRequest
 import com.nuvio.app.features.player.addonSubtitleRequests
 import com.nuvio.app.features.player.computeLocalVideoHash
+import com.nuvio.app.features.player.isLocalSubtitleUri
 import com.nuvio.app.features.player.loadAddonSubtitles
+import com.nuvio.app.features.player.normalizeLanguageCode
 import com.nuvio.app.features.player.subtitleExtrasForDownloadedFile
 import com.nuvio.app.features.streams.StreamSubtitle
 import kotlinx.coroutines.CancellationException
@@ -114,11 +116,40 @@ internal object DownloadSubtitles {
         }
     }
 
+    /** Sidecar text for the preferred language, or the first saved track. */
+    fun firstTrack(localVideoUri: String, preferredLanguage: String? = null): LocalSubtitleTrack? {
+        if (!localVideoUri.startsWith("file:")) return null
+        val storage = DownloadSubtitleStorage(localVideoUri)
+        val tracks = readManifest(storage).tracks
+        if (tracks.isEmpty()) return null
+        val preferred = normalizeLanguageCode(preferredLanguage)
+        val track = tracks.firstOrNull { preferred != null && normalizeLanguageCode(it.language) == preferred }
+            ?: tracks.first()
+        val text = storage.read(track.fileName)?.takeIf { it.isNotBlank() } ?: return null
+        return LocalSubtitleTrack(text, track.language, track.name)
+    }
+
+    /** Text of one sidecar already saved beside [localVideoUri]. */
+    fun textFor(localVideoUri: String, subtitleUri: String): String? {
+        if (!localVideoUri.startsWith("file:") || !subtitleUri.isLocalSubtitleUri()) return null
+        val storage = DownloadSubtitleStorage(localVideoUri)
+        val track = readManifest(storage).tracks.firstOrNull { stored ->
+            storage.localFileUri(stored.fileName) == subtitleUri
+        } ?: return null
+        return storage.read(track.fileName)?.takeIf { it.isNotBlank() }
+    }
+
     private fun readManifest(storage: DownloadSubtitleStorage): SubtitleManifest =
         runCatching {
             storage.read("manifest.json")?.let { json.decodeFromString<SubtitleManifest>(it) }
         }.getOrNull() ?: SubtitleManifest()
 }
+
+internal data class LocalSubtitleTrack(
+    val text: String,
+    val language: String,
+    val name: String?,
+)
 
 @Serializable
 private data class SubtitleManifest(

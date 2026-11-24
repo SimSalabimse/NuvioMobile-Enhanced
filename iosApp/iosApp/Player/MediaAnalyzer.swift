@@ -49,6 +49,8 @@ final class MediaAnalyzer: NSObject, NuvioMediaAnalyzerBridge {
 
     private let fileLock = NSLock()
     private var runningFile: String?
+    /// Playback slices only. [cancel] still aborts every job. [cancelPlayback] aborts one generation.
+    private var playbackFlags: [Int64: MediaAnalyzerAbortFlag] = [:]
 
     private func setRunningFile(_ value: String?) {
         fileLock.lock(); runningFile = value; fileLock.unlock()
@@ -133,6 +135,47 @@ final class MediaAnalyzer: NSObject, NuvioMediaAnalyzerBridge {
             self.endJob(flag)
             DispatchQueue.main.async { onDone(result) }
         }
+    }
+
+    /// Same clip as fingerprintClip, and it keeps going while a video is playing.
+    /// Heat, Low Power Mode, and a low battery still stop it. The audio stays in memory.
+    /// [generation] lets a cancelled slice abort only itself. The result is delivered off the main queue.
+    func fingerprintClipDuringPlayback(
+        url: String,
+        headers: [String: String],
+        startMs: Int64,
+        endMs: Int64,
+        generation: Int64,
+        onDone: @escaping (String?) -> Void
+    ) {
+        let flag = startJob()
+        flagLock.lock()
+        playbackFlags[generation] = flag
+        flagLock.unlock()
+        queue.async {
+            MediaAnalyzerQosName.restoreUtility()
+            let result = ClipFingerprintRun(
+                url: url,
+                headers: headers,
+                startMs: startMs,
+                endMs: endMs,
+                abort: flag,
+                allowsPlayback: true
+            ).run()
+            self.flagLock.lock()
+            if self.playbackFlags[generation] === flag { self.playbackFlags[generation] = nil }
+            self.flagLock.unlock()
+            self.endJob(flag)
+            DispatchQueue.global(qos: .utility).async { onDone(result) }
+        }
+    }
+
+    /// Aborts one playback slice. A full-file analysis on this queue is left running.
+    func cancelPlayback(generation: Int64) {
+        flagLock.lock()
+        let flag = playbackFlags.removeValue(forKey: generation)
+        flagLock.unlock()
+        flag?.set()
     }
 
     func cancel() {
@@ -285,9 +328,11 @@ private final class MediaAnalysisRun {
         self.startMs = startMs
     }
 
-    /// The same heat rule as a full pass: serious, critical, Low Power Mode,
-    /// or fair and above while a download is transferring.
-    private static func introPowerAbort() -> Bool { MediaAnalyzerThrottle.heatBlocksStart() }
+    /// The same heat rule as a full pass, plus a battery under 20% that is not charging.
+    /// Playing a video does not stop this window.
+    private static func introPowerAbort() -> Bool {
+        MediaAnalyzerThrottle.heatBlocksStart() || MediaAnalyzerThrottle.batteryIsLow()
+    }
 
     func run() -> String? {
         // Drop back to the queue's utility class when this job ends, including on failure,
@@ -505,9 +550,31 @@ private final class MediaAnalysisRun {
         guard let acc = accumulator else { return nil }
         if let limit = windowMs {
             let decoded = acc.decodedMs
+            let containerMs = durationMs > 0 ? durationMs : decoded
+            let atEnd = startMs < 0
+            var output: [String: Any] = [
+                "durationMs": containerMs,
+                "energyStepMs": Self.stepMs,
+                "fingerprintStepMs": Self.stepMs,
+                "qos": "utility",
+            ]
+            if atEnd {
+                let origin = max(Int64(0), containerMs - limit)
+                let samples = acc.tailSamples.count >= acc.headSamples.count ? acc.tailSamples : acc.headSamples
+                if let print = Fingerprinter.fingerprint(samples: samples, rate: acc.fingerprintRate) {
+                    output["tail"] = print
+                    output["tailStartMs"] = origin
+                }
+            } else {
+                output["energy"] = Data(acc.energyLevels).base64EncodedString()
+                if let print = Fingerprinter.fingerprint(samples: acc.headSamples, rate: acc.fingerprintRate) {
+                    output["head"] = print
+                }
+            }
             acc.releaseFinished()
             log("intro window decodedMs=\(decoded) limitMs=\(limit)")
-            return "{\"durationMs\":\(decoded),\"qos\":\"utility\"}"
+            guard let data = try? JSONSerialization.data(withJSONObject: output) else { return nil }
+            return String(data: data, encoding: .utf8)
         }
         let measuredMs = durationMs > 0 ? durationMs : acc.decodedMs
         let elapsedNs = DispatchTime.now().uptimeNanoseconds &- startedNs
@@ -603,13 +670,23 @@ private final class ClipFingerprintRun {
     private let startMs: Int64
     private let endMs: Int64
     private let abort: MediaAnalyzerAbortFlag
+    /// When set, a playing video does not stop the clip. Heat and a low battery still do.
+    private let allowsPlayback: Bool
 
-    init(url: String, headers: [String: String], startMs: Int64, endMs: Int64, abort: MediaAnalyzerAbortFlag) {
+    init(
+        url: String,
+        headers: [String: String],
+        startMs: Int64,
+        endMs: Int64,
+        abort: MediaAnalyzerAbortFlag,
+        allowsPlayback: Bool = false
+    ) {
         self.url = url
         self.headers = headers
         self.startMs = startMs
         self.endMs = endMs
         self.abort = abort
+        self.allowsPlayback = allowsPlayback
     }
 
     func run() -> String? {
@@ -619,6 +696,10 @@ private final class ClipFingerprintRun {
             return json(["windowComplete": false, "decodedFrames": 0, "decodedSamples": 0])
         }
         if abort.isSet { return nil }
+        // libav logs the opened address at info, including a token in a debrid query.
+        // AV_LOG_QUIET is -8. The level is restored when this slice returns.
+        ClipAddressLog.begin()
+        defer { ClipAddressLog.end() }
         guard let allocated = avformat_alloc_context() else { return nil }
         allocated.pointee.interrupt_callback.callback = { opaque in
             guard let opaque else { return 0 }
@@ -692,9 +773,11 @@ private final class ClipFingerprintRun {
             av_frame_free(&framePointer)
         }
         while !abort.isSet, !reachedEnd, av_read_frame(context, packet) >= 0 {
-            if MediaAnalyzerThrottle.currentLevel() > 0 {
+            let powerAbort = MediaAnalyzerThrottle.heatBlocksStart() || MediaAnalyzerThrottle.batteryIsLow()
+            let playbackAbort = !allowsPlayback && MediaAnalyzerThrottle.currentLevel() > 0
+            if powerAbort || playbackAbort {
                 accumulator?.releaseFinished()
-                log("clip paused")
+                log(powerAbort ? "clip paused power" : "clip paused")
                 return nil
             }
             if packet.pointee.stream_index == audioIndex, avcodec_send_packet(codecContext, packet) >= 0 {
@@ -762,12 +845,15 @@ private final class ClipFingerprintRun {
             accumulator?.releaseFinished()
             return nil
         }
+        let energy = Data(acc.energyLevels).base64EncodedString()
         let decodedMs = acc.decodedMs
         acc.releaseFinished()
         let output: [String: Any] = [
             "startMs": originMs,
             "stepMs": MediaAnalysisRun.stepMs,
             "fingerprint": print,
+            "energy": energy,
+            "energyStepMs": MediaAnalysisRun.stepMs,
             "decodedFrames": decodedFrames,
             "decodedSamples": decodedSamples,
             "stopReason": stopReason,
@@ -785,6 +871,33 @@ private final class ClipFingerprintRun {
     private func json(_ output: [String: Any]) -> String? {
         guard let data = try? JSONSerialization.data(withJSONObject: output) else { return nil }
         return String(data: data, encoding: .utf8)
+    }
+}
+
+/// libav's default log prints the URL it opens. A slice quiets that, then puts the previous level back.
+/// Nested slices share one saved level. The messages this file writes itself never include the address.
+private enum ClipAddressLog {
+    private static let lock = NSLock()
+    private static var depth = 0
+    private static var savedLevel: Int32 = 0
+
+    static func begin() {
+        lock.lock()
+        if depth == 0 {
+            savedLevel = av_log_get_level()
+            av_log_set_level(-8)
+        }
+        depth += 1
+        lock.unlock()
+    }
+
+    static func end() {
+        lock.lock()
+        depth = max(0, depth - 1)
+        if depth == 0 {
+            av_log_set_level(savedLevel)
+        }
+        lock.unlock()
     }
 }
 
@@ -873,6 +986,7 @@ enum NuvioMediaAnalyzerRegistration {
 
     static func register() {
         NuvioMediaAnalyzerRegistry.shared.register(analyzer: shared)
+        MediaAnalyzerThrottle.startBatteryWatch()
     }
 }
 
@@ -932,6 +1046,66 @@ private enum MediaAnalyzerThrottle {
         if thermal == .serious || thermal == .critical { return true }
         if ProcessInfo.processInfo.isLowPowerModeEnabled { return true }
         return MediaAnalyzerQosName.transferActive() && thermal != .nominal
+    }
+
+    private static let batteryLock = NSLock()
+    private static var cachedBatteryLow = false
+    private static var batteryWatchStarted = false
+
+    /// Under 20% and not charging. Unknown level does not count as low.
+    /// UIDevice is read on the main thread. The decode queue uses the cached value.
+    static func batteryIsLow() -> Bool {
+        if Thread.isMainThread {
+            refreshBatteryLow()
+        } else {
+            batteryLock.lock()
+            let started = batteryWatchStarted
+            batteryLock.unlock()
+            if !started { startBatteryWatch() }
+        }
+        batteryLock.lock()
+        defer { batteryLock.unlock() }
+        return cachedBatteryLow
+    }
+
+    static func startBatteryWatch() {
+        let start = {
+            batteryLock.lock()
+            let already = batteryWatchStarted
+            if !already { batteryWatchStarted = true }
+            batteryLock.unlock()
+            guard !already else { return }
+            UIDevice.current.isBatteryMonitoringEnabled = true
+            refreshBatteryLow()
+            let center = NotificationCenter.default
+            center.addObserver(forName: UIDevice.batteryLevelDidChangeNotification, object: nil, queue: .main) { _ in
+                refreshBatteryLow()
+            }
+            center.addObserver(forName: UIDevice.batteryStateDidChangeNotification, object: nil, queue: .main) { _ in
+                refreshBatteryLow()
+            }
+        }
+        if Thread.isMainThread {
+            start()
+        } else {
+            DispatchQueue.main.async(execute: start)
+        }
+    }
+
+    private static func refreshBatteryLow() {
+        let device = UIDevice.current
+        device.isBatteryMonitoringEnabled = true
+        let low: Bool
+        switch device.batteryState {
+        case .charging, .full:
+            low = false
+        default:
+            let level = device.batteryLevel
+            low = level >= 0 && level < 0.20
+        }
+        batteryLock.lock()
+        cachedBatteryLow = low
+        batteryLock.unlock()
     }
 
     static func yield(abort: MediaAnalyzerAbortFlag, workedNs: UInt64) -> UInt64 {
