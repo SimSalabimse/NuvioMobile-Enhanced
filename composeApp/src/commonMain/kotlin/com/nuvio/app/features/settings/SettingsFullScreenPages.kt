@@ -140,6 +140,7 @@ fun ContinueWatchingSettingsScreen(
             showFinishSeries = continueWatchingPreferencesUiState.showFinishSeries,
             showResumePromptOnLaunch = continueWatchingPreferencesUiState.showResumePromptOnLaunch,
             sortMode = continueWatchingPreferencesUiState.sortMode,
+            clickAction = continueWatchingPreferencesUiState.clickAction,
         )
     }
 }

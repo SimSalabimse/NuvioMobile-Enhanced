@@ -87,6 +87,8 @@ interface PlayerEngineController {
     suspend fun getMediaInfo(): PlayerMediaInfo = PlayerMediaInfo()
     /** The loaded file's chapters, unsorted; empty when the engine cannot read them. */
     suspend fun getChapters(): List<PlayerChapter> = emptyList()
+    fun selectDiscTitle(index: Int) {}
+    fun loadDiscTitleDetails() {}
 }
 
 internal fun sanitizePlaybackHeaders(headers: Map<String, String>?): Map<String, String> {
@@ -135,6 +137,9 @@ expect fun PlatformPlayerSurface(
     playbackEngine: AndroidPlaybackEngine? = null,
     animeContent: Boolean = false,
     useNativeController: Boolean = false,
+    discPlaybackEnabled: Boolean = false,
+    /** A Live TV channel: an endless stream that gets live-specific buffering and recovery. */
+    liveStream: Boolean = false,
     onInitialPositionHandled: (key: String, handled: Boolean) -> Unit = { _, _ -> },
     onControllerReady: (PlayerEngineController) -> Unit,
     onSnapshot: (PlayerPlaybackSnapshot) -> Unit,

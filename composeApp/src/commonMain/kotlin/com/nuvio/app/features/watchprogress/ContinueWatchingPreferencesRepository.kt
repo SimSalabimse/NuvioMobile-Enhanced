@@ -32,6 +32,8 @@ private data class StoredContinueWatchingPreferences(
     val pauseStaleAfterDays: Int = 60,
     @SerialName("enhanced_restored_stale")
     val restoredStale: Map<String, Long> = emptyMap(),
+    @SerialName("click_action")
+    val clickAction: ContinueWatchingClickAction = ContinueWatchingClickAction.STREAM,
 )
 
 object ContinueWatchingPreferencesRepository {
@@ -118,6 +120,7 @@ object ContinueWatchingPreferencesRepository {
                 showFinishSeries = stored.showFinishSeries,
                 pauseStaleAfterDays = stored.pauseStaleAfterDays,
                 restoredStale = stored.restoredStale,
+                clickAction = stored.clickAction,
             )
         } else {
             ContinueWatchingPreferencesUiState()
@@ -157,6 +160,13 @@ object ContinueWatchingPreferencesRepository {
     fun setBlurNextUp(enabled: Boolean) {
         ensureLoaded()
         _uiState.value = _uiState.value.copy(blurNextUp = enabled)
+        persist()
+    }
+
+    fun setClickAction(action: ContinueWatchingClickAction) {
+        ensureLoaded()
+        if (_uiState.value.clickAction == action) return
+        _uiState.value = _uiState.value.copy(clickAction = action)
         persist()
     }
 
@@ -233,6 +243,7 @@ object ContinueWatchingPreferencesRepository {
                     showFinishSeries = _uiState.value.showFinishSeries,
                     pauseStaleAfterDays = _uiState.value.pauseStaleAfterDays,
                     restoredStale = _uiState.value.restoredStale,
+                    clickAction = _uiState.value.clickAction,
                 ),
             ),
         )

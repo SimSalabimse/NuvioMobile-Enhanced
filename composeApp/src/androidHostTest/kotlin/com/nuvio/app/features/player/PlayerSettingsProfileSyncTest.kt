@@ -36,10 +36,11 @@ class PlayerSettingsProfileSyncTest {
 
         val payload = PlayerSettingsStorage.exportToSyncPayload()
         assertEquals(15, payload.decodeSyncInt("skip_backward_seconds"))
-        assertEquals(appearance, payload.decodeSyncString("subtitle_appearance"))
+        // Subtitle appearance stays on this device. A profile payload must not carry it,
+        // or a sync from another device would replace the font that was just migrated.
+        assertNull(payload.decodeSyncString("subtitle_appearance"))
 
         PlayerSettingsStorage.saveSkipBackwardSeconds(10)
-        PlayerSettingsStorage.saveSubtitleAppearance(SubtitleAppearance().encode())
         PlayerSettingsStorage.replaceFromSyncPayload(payload)
 
         assertEquals(15, PlayerSettingsStorage.loadSkipBackwardSeconds())
@@ -47,6 +48,6 @@ class PlayerSettingsProfileSyncTest {
 
         PlayerSettingsStorage.replaceFromSyncPayload(buildJsonObject {})
         assertNull(PlayerSettingsStorage.loadSkipBackwardSeconds())
-        assertNull(PlayerSettingsStorage.loadSubtitleAppearance())
+        assertEquals(appearance, PlayerSettingsStorage.loadSubtitleAppearance())
     }
 }

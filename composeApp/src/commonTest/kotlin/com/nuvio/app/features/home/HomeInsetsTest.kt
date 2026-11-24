@@ -20,4 +20,12 @@ class HomeInsetsTest {
         assertEquals(0f, homeHeroTopPaddingDp(cardStyle = false, contentTopDp = HOME_PRO_PORTRAIT_TOP_DP))
         assertEquals(0f, homeHeroTopPaddingDp(cardStyle = true, contentTopDp = HOME_SMALL_PORTRAIT_TOP_DP))
     }
+
+    @Test
+    fun softFadeIsTheDefaultWidthAndFullWidthDropsTheSideInset() {
+        assertEquals(HOME_HERO_SOFT_FADE_SIDE_DP, homeHeroSideInsetDp(fullWidth = false, cardStyle = false))
+        assertEquals(0f, homeHeroSideInsetDp(fullWidth = true, cardStyle = false))
+        assertEquals(0f, homeHeroSideInsetDp(fullWidth = false, cardStyle = true))
+        assertEquals(false, HomeCatalogSettingsUiState().heroFullWidth)
+    }
 }

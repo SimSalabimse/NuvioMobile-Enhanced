@@ -90,6 +90,8 @@ internal fun PlayerDestination(
         stream = launch.stream,
         submitMode = launch.submitMode,
         privateSession = launch.privateSession,
+        sourceFromLinkCache = launch.sourceFromLinkCache,
+        sourceAutoSelected = launch.sourceAutoSelected,
         onBack = onBack,
         onOpenInExternalPlayer = { request ->
             val playerLaunch = PlayerLaunch(

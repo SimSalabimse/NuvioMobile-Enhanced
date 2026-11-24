@@ -21,6 +21,7 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.ListAlt
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.automirrored.rounded.Toc
+import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.Cast
 import androidx.compose.material.icons.rounded.CastConnected
@@ -177,6 +178,7 @@ internal fun PlayerToolbar(
     onOrientationToggleClick: (() -> Unit)? = null,
     isPortraitPlayback: Boolean = false,
     onPictureInPictureClick: (() -> Unit)? = null,
+    onDiscTitlesClick: (() -> Unit)? = null,
 ) {
     Row(modifier = modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Spacer(Modifier.weight(1f))

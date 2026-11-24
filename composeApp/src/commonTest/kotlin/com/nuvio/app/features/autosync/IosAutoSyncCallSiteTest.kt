@@ -27,6 +27,18 @@ class IosAutoSyncCallSiteTest {
     }
 
     @Test
+    fun autoSyncStaysOffUntilTheViewerTurnsItOn() {
+        val prefs = locate(
+            "composeApp/src/commonMain/kotlin/com/nuvio/app/features/autosync/AutoSyncPreferencesRepository.kt",
+        ).readText()
+        assertTrue(prefs.contains("_preferredSubtitleAutoSyncOnStart = MutableStateFlow(false)"))
+        assertTrue(prefs.contains("loadPersistedValue?.invoke() ?: false"))
+        assertFalse(prefs.contains("_preferredSubtitleAutoSyncOnStart = MutableStateFlow(true)"))
+        assertFalse(prefs.contains("loadPersistedValue?.invoke() ?: true"))
+        assertFalse(decideAutoSyncStart(false) == AutoSyncStartAction.RUN)
+    }
+
+    @Test
     fun iosEmbeddedLoaderIsAStubThePlayerDoesNotCall() {
         val loader = locate(
             "composeApp/src/iosMain/kotlin/com/nuvio/app/features/autosync/EmbeddedSubtitleTimelineLoader.ios.kt",

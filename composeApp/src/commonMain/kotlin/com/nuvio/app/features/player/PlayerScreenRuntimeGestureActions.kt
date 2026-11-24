@@ -85,6 +85,7 @@ internal fun PlayerScreenRuntime.lockPlayerControls() {
     showSourcesPanel = false
     showEpisodesPanel = false
     showChaptersPanel = false
+    showDiscTitlesPanel = false
     episodeStreamsPanelState = EpisodeStreamsPanelState()
     PlayerStreamsRepository.clearEpisodeStreams()
 }
@@ -170,6 +171,14 @@ internal fun PlayerScreenRuntime.showVolumeFeedback(level: PlayerAudioLevel) {
             level = if (level.isMuted) 0f else level.fraction.coerceIn(0f, 1f),
         ),
     )
+}
+
+internal const val PlayerKeyVolumeStep = 1f / 15f
+
+internal fun PlayerScreenRuntime.changeVolumeBy(delta: Float) {
+    val controller = gestureController ?: return
+    val current = controller.currentVolume()?.fraction ?: return
+    controller.setVolume(current + delta)?.let(::showVolumeFeedback)
 }
 
 internal fun PlayerScreenRuntime.togglePlayback() {
@@ -287,6 +296,8 @@ internal fun PlayerScreenRuntime.handleKeyboardShortcut(shortcut: PlayerKeyboard
         PlayerKeyboardShortcut.TogglePlayback -> togglePlayback()
         PlayerKeyboardShortcut.SeekBackward -> seekBy(-skipStepMs(PlayerSeekDirection.Backward))
         PlayerKeyboardShortcut.SeekForward -> seekBy(skipStepMs(PlayerSeekDirection.Forward))
+        PlayerKeyboardShortcut.VolumeUp -> changeVolumeBy(PlayerKeyVolumeStep)
+        PlayerKeyboardShortcut.VolumeDown -> changeVolumeBy(-PlayerKeyVolumeStep)
         PlayerKeyboardShortcut.Exit -> {
             flushWatchProgress()
             args.onBack()

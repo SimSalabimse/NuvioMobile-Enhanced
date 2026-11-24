@@ -1,5 +1,6 @@
 package com.nuvio.app.features.player
 
+import com.nuvio.app.features.home.MetaPreview
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -119,8 +120,10 @@ internal class PlayerScreenRuntime(
     var controlsVisible by mutableStateOf(false)
     var showRemainingTime by mutableStateOf(false)
     var playerControlsLocked by mutableStateOf(false)
+    // Live TV plays an HLS master as it is, so ExoPlayer can switch quality with the connection.
     private val shouldResolveInitialPlayerQuality: Boolean
-        get() = torrentInfoHash == null &&
+        get() = !isLiveTvPlayback &&
+            torrentInfoHash == null &&
             sourceAudioUrl == null &&
             sourceUrl.contains(".m3u8", ignoreCase = true)
 
@@ -234,6 +237,7 @@ internal class PlayerScreenRuntime(
     var showSpeedPanel by mutableStateOf(false)
     var showEpisodesPanel by mutableStateOf(false)
     var showChaptersPanel by mutableStateOf(false)
+    var showDiscTitlesPanel by mutableStateOf(false)
     var showLiveChannelsPanel by mutableStateOf(false)
     /** The file's chapters, sorted; empty when it has fewer than two. */
     var chapters by mutableStateOf<List<PlayerChapter>>(emptyList())
@@ -266,6 +270,7 @@ internal class PlayerScreenRuntime(
     var episodesLoadJob: Job? = null
     var episodesLoadGeneration: Int = 0
     var playerMeta by mutableStateOf<MetaDetails?>(null)
+    var playerMoreLikeThis by mutableStateOf<List<MetaPreview>?>(null)
     val isAnimePlayback: Boolean
         get() {
             val genres = playerMeta?.genres.orEmpty()
@@ -308,6 +313,13 @@ internal class PlayerScreenRuntime(
     var pendingP2pSwitch by mutableStateOf<PendingPlayerP2pSwitch?>(null)
     var credentialRefreshJob by mutableStateOf<Job?>(null)
     var credentialRefreshAttemptedSourceUrl by mutableStateOf<String?>(null)
+    /** URL opened from the reuse-last-link cache; it is refreshed after a playback error even without a token. */
+    var linkCacheSourceUrl: String? = args.sourceUrl.takeIf { args.sourceFromLinkCache && it.isNotBlank() }
+    /** URL picked by auto source selection; only this source falls back to the next match on failure. */
+    var autoSelectedSourceUrl: String? = args.sourceUrl.takeIf { args.sourceAutoSelected && it.isNotBlank() }
+    var sourceFallbackAttempts = 0
+    val sourceFallbackTriedKeys = mutableSetOf<String>()
+    var sourceFallbackJob: Job? = null
 
     var showAudioModal by mutableStateOf(false)
     var showSubtitleModal by mutableStateOf(false)
@@ -322,7 +334,7 @@ internal class PlayerScreenRuntime(
             showPartyPanel || showSourcesPanel || showEpisodesPanel || showSubmitIntroModal ||
             // Fork panels
             showChaptersPanel || showQualityPanel || showSpeedPanel || showLiveChannelsPanel ||
-            showStreamInfoModal || showUserRatingSheet
+            showDiscTitlesPanel || showStreamInfoModal || showUserRatingSheet
     var partyBehind by mutableStateOf(false)
     var partyBehindMs by mutableStateOf<Long?>(null)
     var partyRateNudge: Float? = null
@@ -418,6 +430,7 @@ internal class PlayerScreenRuntime(
             showSpeedPanel ||
             showEpisodesPanel ||
             showChaptersPanel ||
+            showDiscTitlesPanel ||
             showLiveChannelsPanel ||
             showSubmitIntroModal ||
             showSubtitleSyncByEar ||

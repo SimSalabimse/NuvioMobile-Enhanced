@@ -149,6 +149,7 @@ internal fun TabletPageHeader(
                     contentColor = tokens.colors.textPrimary,
                     buttonSize = NuvioTokens.Space.s36,
                     iconSize = tokens.icons.md,
+                    hiddenUnderNativeNavigation = false,
                 )
             }
             Text(

@@ -219,7 +219,11 @@ class HomeHeroBoundsTest {
         val copy = compose.onNodeWithTag(HOME_HERO_CONTENT_TAG).getBoundsInRoot()
         val dots = compose.onNodeWithTag(HOME_HERO_DOTS_TAG).getBoundsInRoot()
         assertTrue(art.top >= window.top + safeTop, "art top ${art.top}")
-        assertTrue(art.right - art.left >= width - 2.dp, "art width ${art.right - art.left} expected about $width")
+        val softFadeInset = (HOME_HERO_SOFT_FADE_SIDE_DP * 2f).dp
+        assertTrue(
+            art.right - art.left >= width - softFadeInset - 2.dp,
+            "art width ${art.right - art.left} expected about ${width - softFadeInset}",
+        )
         assertTrue(copy.top >= art.top, "copy top ${copy.top}")
         assertTrue(dots.top >= art.top)
         assertTrue(copy.bottom <= art.bottom + 1.dp)

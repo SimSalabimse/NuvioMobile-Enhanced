@@ -176,7 +176,7 @@ internal val PlayerScreenRuntime.playbackIsolation: com.nuvio.app.features.watch
 
 internal val PlayerScreenRuntime.shouldTrackWatchProgress: Boolean
     get() = !isLiveTvPlayback && !parentMetaType.equals("live", ignoreCase = true) &&
-        persistsProgress
+        persistsProgress && !playbackSnapshot.discExtraPlaying
 
 /** Submit mode, a private session, and the saved Private Viewing switch all make this false. */
 internal val PlayerScreenRuntime.persistsProgress: Boolean
@@ -669,7 +669,7 @@ internal fun PlayerScreenRuntime.maybeFailoverPlaybackEngine(
     engineFailoverSourceIdentity = sourceIdentity
     flushWatchProgress()
     if (initialSeekApplied) {
-        activeInitialPositionMs = playbackSnapshot.positionMs.coerceAtLeast(0L)
+        activeInitialPositionMs = playbackSnapshot.itemPositionMs.coerceAtLeast(0L)
         activeInitialProgressFraction = null
     }
     // Capture the current track selection so it can be restored on the new engine.
