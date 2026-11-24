@@ -43,6 +43,13 @@ scripts/*
 !scripts/check-ios-objc-export.sh
 !scripts/check-approved-prs.sh
 !scripts/check-approved-prs-test.sh
+!scripts/check-repo-text.py
+!scripts/check-repo-text-test.py
+!scripts/check-secrets.sh
+!scripts/check-secrets-test.sh
+!scripts/check-beta-upstream-guard.sh
+!scripts/install-gitleaks.sh
+!scripts/sync-upstream-release.sh
 !scripts/collect-ios-dsyms.sh
 !scripts/ui-shots.sh
 !scripts/ui-manifest.sh
@@ -58,3 +65,4 @@ iosApp/Configuration/DeviceSigning.local.json
 
 # Local MPVKit iOS build environment (sparse APFS image, see MPVKit docs)
 .mpvkit-build.sparseimage
+.tools/

@@ -27,6 +27,20 @@ import kotlin.test.assertTrue
 
 class UiFixturesTest {
     @Test
+    fun onboardingSkipReadsArgumentsOnlyForADebugBinary() {
+        var reads = 0
+        assertFalse(skipsOnboardingForLaunch(isDebugBinary = false) {
+            reads += 1
+            listOf(UI_TEST_SKIP_ONBOARDING_ARGUMENT)
+        })
+        assertEquals(0, reads)
+        assertFalse(skipsOnboardingForLaunch(isDebugBinary = true) { emptyList() })
+        assertTrue(skipsOnboardingForLaunch(isDebugBinary = true) {
+            listOf(UI_TEST_SKIP_ONBOARDING_ARGUMENT)
+        })
+    }
+
+    @Test
     fun gateStaysDisabledAndDoesNotReadWhenTheBinaryIsNotDebug() {
         var reads = 0
         val decision = decideUiFixture(isDebugBinary = false) {

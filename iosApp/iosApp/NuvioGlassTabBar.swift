@@ -139,6 +139,7 @@ struct NuvioGlassTabBar: View {
         let items = tabs.map { tab in
             NuvioSegmentedTabBarItem(
                 title: appCoordinator.title(for: tab),
+                identifier: "nuvio-tab-\(tab.rawValue)",
                 baseImage: iconStore.image(for: tab, selected: false),
                 accentImage: iconStore.image(for: tab, selected: true),
                 tintsBaseImage: tab != .settings,

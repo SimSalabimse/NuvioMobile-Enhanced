@@ -1,0 +1,12 @@
+title = "Nuvio secret scan"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known test fixtures only. Do not add a production path here."
+paths = [
+  '''(^|/)docs/sync/test-vectors/''',
+  '''(^|/)iosApp/DiagnosticsRedactorTests\.swift$''',
+  '''(^|/)composeApp/src/commonTest/kotlin/com/nuvio/app/features/analysis/ChapterSkipPriorityTest\.kt$''',
+]
