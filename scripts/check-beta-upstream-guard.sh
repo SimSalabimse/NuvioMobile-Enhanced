@@ -1,11 +1,32 @@
 #!/usr/bin/env bash
 # Generalised upstream guard. Protected paths and the MPVKit pin must match
 # the pull-request base unless the PR body has a line "upstream-guard: <path>".
-# Auto Sync's default and persisted fallback stay off either way.
+# A push event has no pull-request payload. When its body is empty, the merged
+# pull request for that commit supplies the same line. Auto Sync's default and
+# persisted fallback stay off either way.
 set -euo pipefail
 
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
+
+# stdout is the merged pull request body, or nothing. A missing token, an
+# unknown commit, or a GitHub error stays empty so the diff still fails closed.
+recover_merged_pr_body() {
+  local sha="$1"
+  local repo="${GITHUB_REPOSITORY:-}"
+  local resolved
+  [[ -n "$repo" && -n "$sha" ]] || return 0
+  command -v gh >/dev/null 2>&1 || return 0
+  resolved="$(git rev-parse --verify "${sha}^{commit}")" || return 0
+  # Actions sets GITHUB_TOKEN. gh reads GH_TOKEN first, so copy it only when
+  # GH_TOKEN is unset. An empty GH_TOKEN would hide an existing login.
+  if [[ -z "${GH_TOKEN:-}" && -n "${GITHUB_TOKEN:-}" ]]; then
+    GH_TOKEN="$GITHUB_TOKEN"
+    export GH_TOKEN
+  fi
+  gh api "repos/${repo}/commits/${resolved}/pulls" \
+    --jq '[.[] | select(.merged_at != null and .body != null) | .body] | join("\n")'
+}
 
 base_ref="${NUVIO_BASE_REF:-beta}"
 if [[ -n "${NUVIO_BASE_SHA:-}" && ! "${NUVIO_BASE_SHA}" =~ ^0+$ ]]; then
@@ -17,6 +38,13 @@ else
 fi
 head="${NUVIO_HEAD_SHA:-HEAD}"
 body="${NUVIO_PR_BODY:-}"
+if [[ -z "$body" && "${GITHUB_EVENT_NAME:-}" == "push" ]]; then
+  recovered="$(recover_merged_pr_body "$head" || true)"
+  if [[ -n "$recovered" ]]; then
+    body="$recovered"
+    echo "upstream-guard: using the merged pull request body"
+  fi
+fi
 
 explained() {
   local path="$1"

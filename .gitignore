@@ -48,6 +48,7 @@ scripts/*
 !scripts/check-secrets.sh
 !scripts/check-secrets-test.sh
 !scripts/check-beta-upstream-guard.sh
+!scripts/check-beta-upstream-guard-test.sh
 !scripts/install-gitleaks.sh
 !scripts/sync-upstream-release.sh
 !scripts/collect-ios-dsyms.sh
