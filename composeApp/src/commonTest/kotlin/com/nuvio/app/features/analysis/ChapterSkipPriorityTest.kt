@@ -170,7 +170,7 @@ class ChapterSkipPriorityTest {
     }
 
     @Test
-    fun importedSubmissionDropsTheChapterTag() {
+    fun importedSubmissionDropsTheChapterTag() = runBlocking {
         val key = "chapter-import__s2e3"
         MediaAnalysisStore.save(
             base(key).copy(introStartMs = 0L, introEndMs = 60_000L, chapterTypes = setOf("intro")),

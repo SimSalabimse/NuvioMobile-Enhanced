@@ -9,6 +9,7 @@ import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.isIos
 import com.nuvio.app.features.addons.httpGetTextWithHeaders
 import com.nuvio.app.features.analysis.MediaAnalysisResult
+import com.nuvio.app.features.analysis.SEGMENT_AGREE_MS
 import com.nuvio.app.features.analysis.MediaAnalysisSettings
 import com.nuvio.app.features.analysis.MediaAnalysisStore
 import com.nuvio.app.features.analysis.decodeEnergy
@@ -117,6 +118,19 @@ internal fun onDeviceSkipIntervalsFrom(
             out += SkipInterval(previewStart / 1000.0, previewEnd / 1000.0, "preview", analysis.skipProviderFor("preview"))
         }
     }
+    for (range in analysis.learnedRanges) {
+        val allowed = when (range.type) {
+            "recap" -> recapDetection
+            "intro", "outro", "preview" -> introDetection
+            else -> false
+        }
+        if (!allowed || range.endMs <= range.startMs) continue
+        val duplicate = out.any { existing ->
+            existing.type == range.type && abs(existing.startTime * 1000.0 - range.startMs) <= SEGMENT_AGREE_MS
+        }
+        if (duplicate) continue
+        out += SkipInterval(range.startMs / 1000.0, range.endMs / 1000.0, range.type, ON_DEVICE_SKIP_PROVIDER)
+    }
     return out
 }
 
@@ -132,15 +146,19 @@ internal fun segmentTypesSyncedByAnalysis(result: MediaAnalysisResult?): Set<Str
     if (result == null) return emptySet()
     val marked = result.userSegments.keys
     return buildSet {
-        if ("intro" !in marked && result.hasAnalysedRange(result.introStartMs, result.introEndMs)) add("intro")
-        if ("recap" !in marked && result.hasAnalysedRange(result.recapStartMs, result.recapEndMs)) add("recap")
-        if ("outro" !in marked && result.hasAnalysedRange(result.creditsStartMs, result.creditsEndMs)) add("outro")
-        if ("preview" !in marked && result.hasAnalysedRange(result.previewStartMs, result.previewEndMs)) add("preview")
+        if ("intro" !in marked && !result.printMatched("intro") && result.hasAnalysedRange(result.introStartMs, result.introEndMs)) add("intro")
+        if ("recap" !in marked && !result.printMatched("recap") && result.hasAnalysedRange(result.recapStartMs, result.recapEndMs)) add("recap")
+        if ("outro" !in marked && !result.printMatched("outro") && result.hasAnalysedRange(result.creditsStartMs, result.creditsEndMs)) add("outro")
+        if ("preview" !in marked && !result.printMatched("preview") && result.hasAnalysedRange(result.previewStartMs, result.previewEndMs)) add("preview")
     }
 }
 
 private fun MediaAnalysisResult.hasAnalysedRange(startMs: Long?, endMs: Long?): Boolean =
     startMs != null && endMs != null && endMs > startMs
+
+/** A print match is not an analysed range and is not offered for submission. */
+private fun MediaAnalysisResult.printMatched(type: String): Boolean =
+    learnedRanges.any { it.type == type }
 
 /**
  * Types the submit bar may mark Auto synced. Android only: iOS keeps the bar as it is.

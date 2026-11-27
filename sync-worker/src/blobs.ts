@@ -6,7 +6,7 @@ import { fail, json } from "./http";
 import { isCursor, isDeviceId, isUuidV4 } from "./ids";
 import { denySpace, loadSpace } from "./spaces";
 
-const KINDS = ["mark", "detection", "submission", "alias"] as const;
+const KINDS = ["mark", "detection", "submission", "alias", "print"] as const;
 type BlobKind = (typeof KINDS)[number];
 
 interface StoredBlob {

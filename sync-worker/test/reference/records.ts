@@ -23,7 +23,7 @@ export interface Hlc {
 }
 
 export interface Tombstone {
-  kind: "mark" | "detection" | "submission" | "alias";
+  kind: "mark" | "detection" | "submission" | "alias" | "print";
   id: string;
   deleted: true;
   hlc: Hlc;
@@ -91,7 +91,30 @@ export interface LiveAlias {
   to: string;
 }
 
-export type LiveRecord = LiveMark | LiveDetection | LiveSubmission | LiveAlias;
+export interface LivePrint {
+  kind: "print";
+  id: string;
+  deleted: false;
+  hlc: Hlc;
+  v: 1;
+  algo: "nuvio-print-1";
+  showId: string;
+  season: number | null;
+  episode: number | null;
+  segmentType: SegmentType;
+  markId: string;
+  part: number;
+  parts: number;
+  startMs: number;
+  endMs: number;
+  originMs: number;
+  durationMs: number;
+  stepMs: 100;
+  padMs: number;
+  frames: string;
+}
+
+export type LiveRecord = LiveMark | LiveDetection | LiveSubmission | LiveAlias | LivePrint;
 export type SyncRecord = Tombstone | LiveRecord;
 
 export interface ParsedRecord {
@@ -110,6 +133,7 @@ export function parseRecord(value: unknown): ParsedRecord | null {
   if (value.kind === "detection") return parseDetection(value, hlc);
   if (value.kind === "submission") return parseSubmission(value, hlc);
   if (value.kind === "alias") return parseAlias(value, hlc);
+  if (value.kind === "print") return parsePrint(value, hlc);
   return null;
 }
 
@@ -152,7 +176,7 @@ function parseTombstone(value: Record<string, unknown>, hlc: Hlc): ParsedRecord 
   if (!keysExact(value, ["deleted", "hlc", "id", "kind"])) return null;
   const kind = value.kind;
   const id = value.id;
-  if (kind !== "mark" && kind !== "detection" && kind !== "submission" && kind !== "alias") return null;
+  if (kind !== "mark" && kind !== "detection" && kind !== "submission" && kind !== "alias" && kind !== "print") return null;
   if (typeof id !== "string" || !tombstoneIdOk(kind, id)) return null;
   const wire = { deleted: true, hlc, id, kind };
   return { record: { kind, id, deleted: true, hlc }, wire };
@@ -336,6 +360,69 @@ function parseAlias(value: Record<string, unknown>, hlc: Hlc): ParsedRecord | nu
   return { record, wire: { ...record } };
 }
 
+const MARK_ID = /^(intro|recap|credits|preview)(-[1-9][0-9]?)?$/;
+const PRINT_FRAMES = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+
+function parsePrint(value: Record<string, unknown>, hlc: Hlc): ParsedRecord | null {
+  if (!keysExact(value, [
+    "algo", "deleted", "durationMs", "endMs", "episode", "frames", "hlc", "id", "kind",
+    "markId", "originMs", "padMs", "part", "parts", "season", "segmentType", "showId",
+    "startMs", "stepMs", "v",
+  ])) return null;
+  if (value.v !== 1 || value.algo !== "nuvio-print-1") return null;
+  if (typeof value.showId !== "string" || !isShowId(value.showId)) return null;
+  if (!isSegment(value.segmentType) || typeof value.markId !== "string" || !MARK_ID.test(value.markId)) return null;
+  if (!value.markId.startsWith(value.segmentType)) return null;
+  if (!safeInt(value.part) || !safeInt(value.parts)) return null;
+  const part = value.part as number;
+  const parts = value.parts as number;
+  if (parts < 1 || parts > 99 || part < 0 || part >= parts) return null;
+  if (value.stepMs !== 100 || !safeInt(value.padMs) || (value.padMs as number) < 0 || (value.padMs as number) > 10_000) return null;
+  if (!safeInt(value.startMs) || !safeInt(value.endMs) || !safeInt(value.originMs) || !safeInt(value.durationMs)) return null;
+  const startMs = value.startMs as number;
+  const endMs = value.endMs as number;
+  const originMs = value.originMs as number;
+  const durationMs = value.durationMs as number;
+  if (startMs < 0 || endMs <= startMs || originMs < 0 || durationMs < 0) return null;
+  const located = episodeKey(value.season as number | null, value.episode as number | null);
+  if (value.season !== null && (typeof value.season !== "number" || !safeInt(value.season))) return null;
+  if (value.episode !== null && (typeof value.episode !== "number" || !safeInt(value.episode))) return null;
+  if (located === null) return null;
+  if (typeof value.frames !== "string" || !printFramesOk(value.frames)) return null;
+  const id = `print/${value.showId}/${located}/${value.segmentType}/${value.markId}/${part}`;
+  if (value.id !== id) return null;
+  const record: LivePrint = {
+    kind: "print",
+    id,
+    deleted: false,
+    hlc,
+    v: 1,
+    algo: "nuvio-print-1",
+    showId: value.showId,
+    season: value.season as number | null,
+    episode: value.episode as number | null,
+    segmentType: value.segmentType,
+    markId: value.markId,
+    part,
+    parts,
+    startMs,
+    endMs,
+    originMs,
+    durationMs,
+    stepMs: 100,
+    padMs: value.padMs as number,
+    frames: value.frames,
+  };
+  return { record, wire: { ...record } };
+}
+
+function printFramesOk(frames: string): boolean {
+  if (!PRINT_FRAMES.test(frames)) return false;
+  const pad = frames.endsWith("==") ? 2 : frames.endsWith("=") ? 1 : 0;
+  const decoded = (frames.length / 4) * 3 - pad;
+  return decoded >= 4 && decoded % 4 === 0 && decoded / 4 <= 1200;
+}
+
 function parseLocation(value: Record<string, unknown>): { showId: string; season: number | null; episode: number | null; episodeKey: string } | null {
   if (typeof value.showId !== "string" || !isShowId(value.showId)) return null;
   const season = value.season;
@@ -379,11 +466,24 @@ function tombstoneIdOk(kind: Tombstone["kind"], id: string): boolean {
     const parts = id.split("/");
     return parts.length === 3 && parts[0] === "submission" && ACCOUNT.test(parts[1]!) && REMOTE_ID.test(parts[2]!);
   }
+  if (kind === "print") return printIdOk(id);
   const parts = id.split("/");
   if (parts.length !== 7 || parts[0] !== "det") return false;
   return isShowId(parts[1]!) && /^(movie|s[0-9]+e[1-9][0-9]*)$/.test(parts[2]!) && isSegment(parts[3]) &&
     /^[0-9]{1,2}$/.test(parts[4]!) && Number(parts[4]) <= 99 &&
     /^[0-9]+$/.test(parts[5]!) && /^a[1-9][0-9]{0,8}$/.test(parts[6]!);
+}
+
+function printIdOk(id: string): boolean {
+  const parts = id.split("/");
+  if (parts.length !== 6 || parts[0] !== "print") return false;
+  const episode = parts[2] ?? "";
+  const segment = parts[3] ?? "";
+  const mark = parts[4] ?? "";
+  const part = parts[5] ?? "";
+  return isShowId(parts[1] ?? "") && /^(movie|s[0-9]+e[1-9][0-9]*)$/.test(episode) &&
+    isSegment(segment) && MARK_ID.test(mark) && mark.startsWith(segment) &&
+    /^[0-9]{1,2}$/.test(part) && Number(part) <= 98;
 }
 
 function isNoneId(id: string): boolean {

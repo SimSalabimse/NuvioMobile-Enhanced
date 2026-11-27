@@ -40,7 +40,7 @@ internal fun MediaAnalysisResult.withoutImportedMarks(): MediaAnalysisResult {
 
 /** Without the intro/credits learned from other episodes' marks (they are learned again). */
 internal fun MediaAnalysisResult.withoutLearnedTypes(): MediaAnalysisResult {
-    var r = copy(learnedTypes = emptySet(), derivedVersion = 0)
+    var r = copy(learnedTypes = emptySet(), learnedRanges = emptyList(), derivedVersion = 0)
     if ("intro" in learnedTypes && "intro" !in userSegments) r = r.copy(introStartMs = null, introEndMs = null)
     if ("outro" in learnedTypes && "outro" !in userSegments) r = r.copy(creditsStartMs = null, creditsEndMs = null)
     return r

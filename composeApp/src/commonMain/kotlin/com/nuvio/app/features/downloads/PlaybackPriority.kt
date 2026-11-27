@@ -431,6 +431,9 @@ internal object PlaybackPriority {
         return backgroundSessionHolds(watchingNow(), power.thermal)
     }
 
+    /** True while a download transfer is the thing that can warm-pause analysis. */
+    fun transfersActiveNow(): Boolean = transfersActive
+
     /**
      * True only while this process has a snapshot of the picture moving, or of a stall after a
      * frame already played. A player that is merely open, restored, or paused is not watching.

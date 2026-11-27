@@ -3,6 +3,8 @@ package com.nuvio.app.features.analysis
 import com.nuvio.app.core.logging.InAppLogger
 import com.nuvio.app.features.player.skip.MAX_SUBMISSIONS_PER_TYPE
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 
 /**
@@ -98,6 +100,16 @@ internal object SkipLearning {
         }
         InAppLogger.info("SkipLearning", "mark key=$key type=$category ${startMs}-${endMs}")
         val taught = if (season != null && episode != null) teachSeason(parentMetaId, season, key) else 0
+        withContext(Dispatchers.Default) {
+            ensureActive()
+            ShowPrints.syncEpisode(
+                parentMetaId,
+                key,
+                reteach = true,
+                gate = ShowPrints.liveQueueGate(),
+                shouldStop = { !isActive },
+            )
+        }
         MediaAnalysisStatus.resultsChanged()
         return taught
     }
@@ -135,6 +147,7 @@ internal object SkipLearning {
                 durationMs = existing.durationMs.takeIf { it > 0L } ?: durationMs,
             ).withUserSegmentsApplied(),
         )
+        ShowPrints.syncEpisode(parentMetaId, key, reteach = false, gate = ShowPrintGate.Open)
         MediaAnalysisStatus.resultsChanged()
         return true
     }
@@ -143,7 +156,7 @@ internal object SkipLearning {
      * Stores an earlier mark (for example one of the user's TheIntroDB submissions) unless the
      * episode already has a mark of that type. Returns true when it was new.
      */
-    fun importMark(
+    suspend fun importMark(
         parentMetaId: String,
         season: Int?,
         episode: Int?,
@@ -168,16 +181,28 @@ internal object SkipLearning {
                 derivedVersion = if (category == "intro") 0 else existing.derivedVersion,
             )
         }
+        if (added) {
+            withContext(Dispatchers.Default) {
+                ensureActive()
+                ShowPrints.syncEpisode(
+                    parentMetaId,
+                    key,
+                    reteach = true,
+                    gate = ShowPrints.liveQueueGate(),
+                    shouldStop = { !isActive },
+                )
+            }
+        }
         return added
     }
 
     /**
      * Stores another mark of a type this episode already has.
-     * The first mark of that type stays the one detection teaches from.
+     * Each mark keeps its own print. Season matching still uses the first intro and credits mark.
      * Returns false when the episode already has [MAX_SUBMISSIONS_PER_TYPE] of that type,
      * or the same range is already stored.
      */
-    fun addSegment(
+    suspend fun addSegment(
         parentMetaId: String,
         season: Int?,
         episode: Int?,
@@ -212,8 +237,42 @@ internal object SkipLearning {
                     ),
             )
         }
-        if (added) MediaAnalysisStatus.resultsChanged()
+        if (added) {
+            withContext(Dispatchers.Default) {
+                ensureActive()
+                ShowPrints.syncEpisode(
+                    parentMetaId,
+                    key,
+                    reteach = true,
+                    gate = ShowPrints.liveQueueGate(),
+                    shouldStop = { !isActive },
+                )
+            }
+            MediaAnalysisStatus.resultsChanged()
+        }
         return added
+    }
+
+    /**
+     * Drops one stored mark and its print. Other episodes lose that detection.
+     * Nothing is matched again, so deleting a mark does not teach a new time.
+     */
+    fun removeMark(
+        parentMetaId: String,
+        season: Int?,
+        episode: Int?,
+        markId: String,
+    ): Boolean {
+        if (parentMetaId.isBlank() || markId.isBlank()) return false
+        val key = MediaAnalysisStore.keyFor(parentMetaId, season, episode)
+        val existing = MediaAnalysisStore.load(key) ?: return false
+        val entry = existing.userSegments.entries.firstOrNull { (mapKey, mark) ->
+            mark.id.ifBlank { mapKey } == markId
+        } ?: return false
+        MediaAnalysisStore.save(existing.copy(userSegments = existing.userSegments - entry.key))
+        ShowPrints.syncEpisode(parentMetaId, key, reteach = false, gate = ShowPrintGate.Open)
+        MediaAnalysisStatus.resultsChanged()
+        return true
     }
 
     /** Re-matches every other episode of the season against the marks of [referenceKey]. */

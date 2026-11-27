@@ -3294,6 +3294,7 @@
     <string name="analysis_next_paused_battery">Next episode paused, low battery</string>
     <string name="analysis_next_paused_heat">Next episode paused, device is warm</string>
     <string name="analysis_next_done">Next episode is ready</string>
+    <string name="analysis_detected_from_marks">Detected from your marks</string>
     <string name="analysis_part_intro">Intro</string>
     <string name="analysis_part_credits">Credits</string>
     <string name="analysis_part_a11y">%1$s: %2$s</string>

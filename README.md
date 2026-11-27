@@ -207,7 +207,7 @@ Upstream Nuvio has no Live TV. This fork adds the whole feature.
 
 | Feature | Where | Default |
 |---|---|---|
-| **Analyzed details sync format** — shared v1 records for your marks (including “none here”), detected segment times, and the TheIntroDB submissions list under a hashed account scope. A Cloudflare Worker stores ciphertext; the same blobs can live as files in a sync folder. Fingerprints, keys, addon URLs, and watch progress stay on the device. The apps do not sync yet. | `docs/sync/SYNC_FORMAT_v1.md`, `sync-worker/` | Off |
+| **Analyzed details sync format** — shared v1 records for your marks (including “none here”), detected segment times, the TheIntroDB submissions list under a hashed account scope, and a compact print of a mark you made. A Cloudflare Worker stores ciphertext; the same blobs can live as files in a sync folder. Full-episode fingerprints, keys, addon URLs, and watch progress stay on the device. The phone upload loop is not on this branch. | `docs/sync/SYNC_FORMAT_v1.md`, `docs/prints/PRINT_FORMAT_v1.md`, `sync-worker/` | Off |
 
 ### Performance
 
