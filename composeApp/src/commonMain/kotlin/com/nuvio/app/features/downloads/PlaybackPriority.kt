@@ -24,9 +24,11 @@ import com.nuvio.app.features.diagnostics.behaviourPositionBucket
  *
  * - [Level.Normal]: no player, or it has been paused for [PAUSED_RELEASE_MS]. Analysis may run,
  *   unless the phone is seriously hot or in Low Power Mode.
- * - [Level.Playing]: one download at a time. While the video is actually playing, intro, segment,
- *   and learning analysis is paused. A pause or the end of playback lets it resume.
- *   Downloads still use this level's cap until [PAUSED_RELEASE_MS].
+ * - [Level.Playing]: one download at a time, only while the picture is actually moving (or the
+ *   player has stalled after a frame already played). Opening or restoring the player does not
+ *   count. A pause, the end, a dismiss, or leaving the app releases downloads at once. Intro,
+ *   segment, and learning analysis follow the same picture. The level itself returns to Normal
+ *   after [PAUSED_RELEASE_MS].
  * - [Level.Strained]: the player stalled mid-playback (a local file read at ~150 kB/s with two
  *   downloads writing and the analyser decoding is how this was found): waiting for data for
  *   [STRAIN_AFTER_MS] at the spot it was playing. Downloads wait and analysis stays paused until
@@ -53,7 +55,11 @@ internal object PlaybackPriority {
     var level: Level = Level.Normal
         private set
     private var sessionOpen = false
-    /** Download lane. Play-when-ready, including while the player is buffering. */
+    /**
+     * Download lane. True only while the picture is moving, or the player has stalled after a
+     * frame already played. Play-when-ready alone, including a restored player that is not
+     * playing, does not hold downloads.
+     */
     private var videoPlaying = false
     /** Analysis. True only while the picture is actually moving. */
     private var actuallyPlaying = false
@@ -95,21 +101,21 @@ internal object PlaybackPriority {
         playedSinceLoad = false
         lastPositionMs = -1L
         lastTickMs = 0L
-        videoPlaying = true
+        videoPlaying = false
         actuallyPlaying = false
         backgroundSuspended = false
-        lastLiveMs = com.nuvio.app.features.streams.epochMs()
+        lastLiveMs = 0L
         appliedDownloadGateKey = null
         setAnalysisPlayerSessionOpen(true)
         logPresence("present")
         InAppLogger.info("PlaybackPriority", "player opened local=$isLocalFile")
-        logPlayback("start", lastPositionMs)
-        apply(Level.Playing, always = true)
+        // Attached is not watching. A restored or still-loading player must not hold the queue.
+        if (level != Level.Normal) apply(Level.Normal) else publishDownloadGate()
     }
 
     /**
-     * Every player snapshot (main thread). [wantsToPlay] is play-when-ready and drives the
-     * download lane. [pictureMoving] is the picture actually moving and drives analysis.
+     * Every player snapshot (main thread). [wantsToPlay] is play-when-ready. The download lane
+     * and analysis follow [pictureMoving], plus a stall after a frame has already played.
      */
     fun noteSnapshot(
         wantsToPlay: Boolean,
@@ -128,7 +134,10 @@ internal object PlaybackPriority {
             logPresence("present")
         }
         val moving = pictureMoving && !ended && !failed
-        val lane = wantsToPlay && !ended && !failed
+        val intending = wantsToPlay && !ended && !failed
+        // A stall only counts after the picture has moved. The first load, a seek, and a
+        // restored play-when-ready flag have not.
+        val stalled = intending && buffering && playedSinceLoad
         if (ended || failed) {
             val reason = if (ended) "end" else "error"
             val wasOn = actuallyPlaying || videoPlaying
@@ -140,7 +149,7 @@ internal object PlaybackPriority {
                 actuallyPlaying = moving
                 logPresence(if (moving) "playing" else "paused")
             }
-            videoPlaying = lane
+            videoPlaying = moving || stalled
         }
         try {
             noteSnapshotBody(buffering, positionMs, nowMs)
@@ -322,16 +331,20 @@ internal object PlaybackPriority {
     fun analysisPauseReason(): String? = appliedPauseReason
 
     fun sessionEnded() {
+        val hadSession = sessionOpen || videoPlaying || actuallyPlaying
         clearNextUp()
         analysisBoosted = false
         backgroundSuspended = false
         pictureInPicture = false
-        if (actuallyPlaying || videoPlaying || sessionOpen) logPresence("dismiss")
+        if (hadSession) logPresence("dismiss")
         actuallyPlaying = false
         videoPlaying = false
         appliedDownloadGateKey = null
         setAnalysisPlayerSessionOpen(false)
-        if (!sessionOpen) return
+        if (!sessionOpen && !hadSession) {
+            reapplyDownloadCap()
+            return
+        }
         sessionOpen = false
         logPlayback("stop", lastPositionMs)
         loggedPlayState = "idle"
@@ -384,9 +397,10 @@ internal object PlaybackPriority {
     }
 
     fun downloadGate(): DownloadGateDecision {
+        val playing = watchingNow()
         val power = AnalysisPower.snapshot()
         val gate = playbackDownloadGate(
-            videoPlaying = videoPlaying,
+            videoPlaying = playing,
             thermal = power.thermal,
             lowPowerMode = power.lowPowerMode,
             charging = MediaAnalyzerPlatform.isCharging(),
@@ -394,7 +408,7 @@ internal object PlaybackPriority {
             behindDeadline = behindDeadline,
             pauseWhileWatching = SmartDownloadSettings.snapshot().pauseDuringPlayback,
         )
-        if (level != Level.Strained || !videoPlaying) return gate
+        if (level != Level.Strained || !playing) return gate
         val held = gate.nextUp.copy(
             state = DownloadGateState.Hold,
             pace = TransferPace.Stopped,
@@ -409,7 +423,36 @@ internal object PlaybackPriority {
     /** Serious or critical heat, and nothing playing: the background session transfers nothing. */
     fun backgroundSessionHold(): Boolean {
         val power = AnalysisPower.snapshot()
-        return backgroundSessionHolds(videoPlaying, power.thermal)
+        return backgroundSessionHolds(watchingNow(), power.thermal)
+    }
+
+    /**
+     * True only while this process has a snapshot of the picture moving, or of a stall after a
+     * frame already played. A player that is merely open, restored, or paused is not watching.
+     * With no clock, that is the last snapshot's own flag. Pass [nowMs] from the same clock as
+     * the snapshot to treat one older than [STALE_PLAYBACK_MS] as not watching. Picture in
+     * Picture keeps the last snapshot.
+     */
+    fun isWatching(nowMs: Long = -1L): Boolean {
+        if (backgroundSuspended || !sessionOpen || !videoPlaying) return false
+        if (nowMs >= 0L && snapshotIsStale(nowMs)) return false
+        return true
+    }
+
+    /** Drops a watch hold whose last snapshot has gone stale, and reopens the download cap. */
+    fun releaseStaleWatchHold(nowMs: Long = com.nuvio.app.features.streams.epochMs()) {
+        dropStaleWatchHold(nowMs)
+    }
+
+    private fun watchingNow(): Boolean = isWatching()
+
+    /**
+     * A clock that is behind [lastLiveMs] is a different time base (tests), not a stale player.
+     * Picture in Picture keeps the last snapshot.
+     */
+    private fun snapshotIsStale(nowMs: Long): Boolean {
+        if (pictureInPicture || lastLiveMs <= 0L || nowMs < lastLiveMs) return false
+        return nowMs - lastLiveMs > STALE_PLAYBACK_MS
     }
 
     fun reapplyDownloadCap() = DownloadsRepository.setPlaybackDownloadCap(downloadCap())
@@ -575,6 +618,27 @@ internal object PlaybackPriority {
         logProcessMemory(event)
     }
 
+    /**
+     * A snapshot that stopped arriving is not playback. Downloads and analysis both let go.
+     * Picture in Picture keeps the last snapshot: that player is still on screen.
+     */
+    private var droppingStale = false
+
+    private fun dropStaleWatchHold(nowMs: Long) {
+        if (droppingStale || pictureInPicture || backgroundSuspended || (!videoPlaying && !actuallyPlaying)) return
+        if (lastLiveMs <= 0L || nowMs - lastLiveMs <= STALE_PLAYBACK_MS) return
+        droppingStale = true
+        try {
+            actuallyPlaying = false
+            videoPlaying = false
+            logPresence("stale")
+            publishAnalysisThrottle(videoPlaying = false)
+            publishDownloadGate()
+        } finally {
+            droppingStale = false
+        }
+    }
+
     /** Analyse now. A quiet picture does not keep the playback hold. The download lane stays. */
     fun dropStalePlaybackForManualStart() {
         val nowMs = com.nuvio.app.features.streams.epochMs()
@@ -586,7 +650,6 @@ internal object PlaybackPriority {
 
     /**
      * True only while a snapshot says the picture is moving and that snapshot is still fresh.
-     * A stale picture releases analysis only. Downloads keep the play-when-ready lane.
      */
     internal fun analysisPictureMoving(nowMs: Long): Boolean {
         if (backgroundSuspended || !sessionOpen || !actuallyPlaying) return false
@@ -625,6 +688,7 @@ internal object PlaybackPriority {
         setAnalysisThrottleLevel(0)
         transfersActive = false
         setAnalysisTransferActive(false)
+        reapplyDownloadCap()
     }
 }
 

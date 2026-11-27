@@ -30,7 +30,7 @@ internal enum class DownloadSlowReason {
 
 /**
  * Facts the row already has. Nothing here reads the device: callers pass what they observed.
- * [pauseWhileWatching] is the setting. [playerActive] is a stream open past the idle level.
+ * [pauseWhileWatching] is the setting. [playerActive] is a picture that is actually moving.
  * [bufferingThrottle] is the existing buffer throttle (downloads held while the stream buffers).
  * [activeAhead] is how many downloads are already running. [retryCount] is the manager's count.
  * [downloadedBytes] is the row's progress. [bytesAtLastFailure] is where the last counted retry
@@ -94,8 +94,10 @@ internal fun rememberDownloadSlowTick(active: Boolean): Int {
     val tick = remember { mutableIntStateOf(0) }
     LaunchedEffect(active) {
         if (!active) return@LaunchedEffect
+        PlaybackPriority.releaseStaleWatchHold()
         while (true) {
             delay(SLOW_REASON_REFRESH_MS)
+            PlaybackPriority.releaseStaleWatchHold()
             tick.intValue++
         }
     }
@@ -130,7 +132,7 @@ internal fun DownloadSlowReasonLine(items: List<DownloadItem>) {
                 DownloadSlowSignals(
                     status = item.status,
                     pauseWhileWatching = smart.pauseDuringPlayback,
-                    playerActive = PlaybackPriority.level != PlaybackPriority.Level.Normal,
+                    playerActive = PlaybackPriority.isWatching(),
                     heldForPlayback = item.id in held,
                     bufferingThrottle = PlaybackPriority.level == PlaybackPriority.Level.Strained,
                     activeAhead = activeAhead,

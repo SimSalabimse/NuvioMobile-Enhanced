@@ -260,7 +260,7 @@ internal object NextEpisodeAnalysisScheduler {
         val power = withContext(Dispatchers.Main.immediate) { AnalysisPower.snapshot() }
         val free = runCatching { DownloadDiskInfo.volumeSpace()?.availableBytes }.getOrNull()
         return NextEpisodeAnalysisConditions(
-            videoPlaying = PlaybackPriority.level != PlaybackPriority.Level.Normal,
+            videoPlaying = PlaybackPriority.isWatching(),
             freeBytes = free,
             thermal = power.thermal,
             lowPowerMode = power.lowPowerMode,

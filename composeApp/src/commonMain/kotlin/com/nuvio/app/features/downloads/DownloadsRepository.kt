@@ -1161,10 +1161,12 @@ object DownloadsRepository {
     }
 
     /**
-     * Waiting rows the normal cap would run now: only the open player holds them back. From the
-     * same line and cap that decide the slots, so the row can say why it waits.
+     * Waiting rows the normal cap would run now, and only because a picture is actually moving.
+     * Heat or Low Power Mode can lower the cap too, and those rows must not say they are waiting
+     * on playback.
      */
     private fun heldForPlayback(items: List<DownloadItem>): Set<String> {
+        if (!PlaybackPriority.isWatching()) return emptySet()
         val free = MAX_ACTIVE_DOWNLOADS - startQueue.activeIds().size
         if (startQueue.maxActive >= MAX_ACTIVE_DOWNLOADS || free <= 0) return emptySet()
         val queued = items.filter { it.status == DownloadStatus.Queued }.map { it.id }.toSet()
