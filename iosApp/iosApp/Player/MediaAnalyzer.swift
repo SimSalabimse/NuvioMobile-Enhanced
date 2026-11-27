@@ -1041,11 +1041,18 @@ private enum MediaAnalyzerThrottle {
     /// Returns the nanoseconds spent inside the sleeps (0 when the level does not pause).
     /// Live heat, including fair and above while a transfer is active.
     /// A stored throttle of 0 is not enough: the power path checks this before it resumes.
+    /// Fair heat while a download runs can be skipped once ("Analyse anyway").
+    /// Serious and critical always stop the decode, and so does Low Power Mode.
     static func heatBlocksStart() -> Bool {
         let thermal = ProcessInfo.processInfo.thermalState
         if thermal == .serious || thermal == .critical { return true }
         if ProcessInfo.processInfo.isLowPowerModeEnabled { return true }
+        if warmOverride() { return false }
         return MediaAnalyzerQosName.transferActive() && thermal != .nominal
+    }
+
+    private static func warmOverride() -> Bool {
+        UserDefaults.standard.bool(forKey: NuvioAutomationDefaults.storeKey("NuvioAnalysisWarmOverride"))
     }
 
     private static let batteryLock = NSLock()

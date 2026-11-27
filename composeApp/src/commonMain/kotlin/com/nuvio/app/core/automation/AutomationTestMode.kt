@@ -82,6 +82,7 @@ object AutomationStoreCatalog {
         AutomationStore("analysis_throttle", "NuvioAnalysisThrottleLevel", AutomationStoreKind.Prefixed),
         AutomationStore("analysis_session", "NuvioAnalysisPlayerSessionOpen", AutomationStoreKind.Prefixed),
         AutomationStore("analysis_transfer", "NuvioAnalysisTransferActive", AutomationStoreKind.Prefixed),
+        AutomationStore("analysis_warm_override", "NuvioAnalysisWarmOverride", AutomationStoreKind.Prefixed),
         AutomationStore("profile_payload", "profile_payload", AutomationStoreKind.ReadOnly),
         AutomationStore("anonymous_user", "anonymous_user_id", AutomationStoreKind.ReadOnly),
         AutomationStore("avatar_catalog", "avatar_catalog_payload", AutomationStoreKind.ReadOnly),

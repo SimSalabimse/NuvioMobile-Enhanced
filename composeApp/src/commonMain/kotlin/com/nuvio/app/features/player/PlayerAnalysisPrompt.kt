@@ -83,8 +83,9 @@ internal fun BoxScope.RenderAnalysisPlayPrompt(runtime: PlayerScreenRuntime) {
             // Only a file with no stored analysis at all counts. Derived parts (recap, previews)
             // that are merely being recomputed after a cleanup or version bump are refreshed in
             // the background and must not bring up the prompt on an already-analysed episode.
-            when (MediaAnalysisStatus.statusFor(item)) {
+            when (val status = MediaAnalysisStatus.statusFor(item)) {
                 is ItemAnalysisStatus.Queued -> true
+                is ItemAnalysisStatus.Paused -> status.parts == null
                 is ItemAnalysisStatus.Running -> MediaAnalysisStore.load(MediaAnalysisStore.keyFor(item)) == null
                 else -> false
             }

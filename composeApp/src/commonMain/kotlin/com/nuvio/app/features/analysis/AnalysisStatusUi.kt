@@ -72,15 +72,18 @@ import nuvio.composeapp.generated.resources.analysis_summary_bg_not_scheduled
 import nuvio.composeapp.generated.resources.analysis_summary_queue
 import nuvio.composeapp.generated.resources.analysis_summary_more
 import nuvio.composeapp.generated.resources.analysis_action_now
+import nuvio.composeapp.generated.resources.analysis_action_anyway
 import nuvio.composeapp.generated.resources.analysis_action_reanalyse_all
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -93,6 +96,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -199,10 +203,16 @@ fun AnalysisStatusRow(item: DownloadItem) {
     val revision by MediaAnalysisStatus.revision.collectAsStateWithLifecycle()
     val flags by MediaAnalysisSettings.flags.collectAsStateWithLifecycle()
     val status = remember(item.id, item.fileName, job, failures, revision, flags) { MediaAnalysisStatus.statusFor(item) }
+    val queuePaused = status is ItemAnalysisStatus.Paused
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
     when (status) {
         ItemAnalysisStatus.Unsupported -> Unit
         ItemAnalysisStatus.Queued -> StatusLine(Icons.Rounded.Schedule, stringResource(Res.string.analysis_status_queued), muted)
+        is ItemAnalysisStatus.Paused -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            StatusLine(Icons.Rounded.Schedule, analysisQueuePauseText(status.pause), muted)
+            status.parts?.let { PartChips(item, it) }
+            if (status.pause == AnalysisQueuePause.Warm) AnalyseAnywayButton()
+        }
         is ItemAnalysisStatus.Running -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             StatusLine(
                 Icons.Rounded.GraphicEq,
@@ -235,7 +245,27 @@ fun AnalysisStatusRow(item: DownloadItem) {
             status.parts?.let { PartChips(item, it) }
         }
     }
-        if (nextText != null) StatusLine(Icons.Rounded.GraphicEq, nextText, muted)
+        if (nextText != null && !queuePaused) StatusLine(Icons.Rounded.GraphicEq, nextText, muted)
+    }
+}
+
+@Composable
+private fun analysisQueuePauseText(pause: AnalysisQueuePause): String = when (pause) {
+    AnalysisQueuePause.Charger -> stringResource(Res.string.analysis_summary_waiting_charger)
+    AnalysisQueuePause.Playback -> stringResource(Res.string.analysis_summary_waiting_playback)
+    AnalysisQueuePause.Heat -> stringResource(Res.string.analysis_summary_waiting_heat)
+    AnalysisQueuePause.Warm -> stringResource(Res.string.analysis_summary_waiting_download)
+    AnalysisQueuePause.LowPower -> stringResource(Res.string.analysis_summary_waiting_low_power)
+    AnalysisQueuePause.Other -> stringResource(Res.string.analysis_summary_paused)
+}
+
+@Composable
+private fun AnalyseAnywayButton() {
+    TextButton(
+        onClick = { MediaAnalysisScheduler.analyseAnyway() },
+        modifier = Modifier.heightIn(min = 44.dp),
+    ) {
+        Text(stringResource(Res.string.analysis_action_anyway))
     }
 }
 
@@ -421,6 +451,10 @@ internal fun AnalysisSummarySection(isTablet: Boolean) {
     val flags by MediaAnalysisSettings.flags.collectAsStateWithLifecycle()
     val summary = remember(downloads, job, failures, revision, flags) { MediaAnalysisStatus.summarize(downloads.items) }
     val onlyCharging = flags[MediaAnalysisSettings.Flag.OnlyWhileCharging] ?: MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.OnlyWhileCharging)
+    val queuePause = analysisQueuePause(
+        job,
+        waitingForCharger = job == AnalysisJobState.Idle && onlyCharging && summary.queued.isNotEmpty(),
+    )
     val textColor = MaterialTheme.colorScheme.onSurface
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
 
@@ -445,7 +479,9 @@ internal fun AnalysisSummarySection(isTablet: Boolean) {
                 if (summary.failed > 0) {
                     Text(stringResource(Res.string.analysis_summary_failed, summary.failed), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 }
-                val stateText = when (val j = job) {
+                val stateText = if (queuePause != null) {
+                    analysisQueuePauseText(queuePause)
+                } else when (val j = job) {
                     is AnalysisJobState.Running -> stringResource(
                         Res.string.analysis_summary_running,
                         j.title,
@@ -499,11 +535,24 @@ internal fun AnalysisSummarySection(isTablet: Boolean) {
                 }
             }
             SettingsGroupDivider(isTablet = isTablet)
-            SettingsClickableRow(
-                title = stringResource(Res.string.analysis_action_now),
-                isTablet = isTablet,
-                onClick = { MediaAnalysisScheduler.analyseNow() },
-            )
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Box(modifier = Modifier.weight(1f)) {
+                    SettingsClickableRow(
+                        title = stringResource(Res.string.analysis_action_now),
+                        isTablet = isTablet,
+                        onClick = { MediaAnalysisScheduler.analyseNow() },
+                    )
+                }
+                if (queuePause == AnalysisQueuePause.Warm) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        SettingsClickableRow(
+                            title = stringResource(Res.string.analysis_action_anyway),
+                            isTablet = isTablet,
+                            onClick = { MediaAnalysisScheduler.analyseAnyway() },
+                        )
+                    }
+                }
+            }
             SettingsGroupDivider(isTablet = isTablet)
             SettingsClickableRow(
                 title = stringResource(Res.string.analysis_action_reanalyse_all),

@@ -25,3 +25,8 @@ internal actual fun setAnalysisActiveJob(jobId: String) {
 internal actual fun setAnalysisTransferActive(active: Boolean) {
     NSUserDefaults.standardUserDefaults.setBool(active, forKey = isolateStorageKey("NuvioAnalysisTransferActive"))
 }
+
+/** Read by MediaAnalyzer.swift. Fair heat may run once. Serious and critical still stop the decode. */
+internal actual fun setAnalysisWarmOverride(on: Boolean) {
+    NSUserDefaults.standardUserDefaults.setBool(on, forKey = isolateStorageKey("NuvioAnalysisWarmOverride"))
+}

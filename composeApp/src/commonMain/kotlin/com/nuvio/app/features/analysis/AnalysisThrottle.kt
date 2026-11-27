@@ -14,3 +14,9 @@ internal expect fun setAnalysisActiveJob(jobId: String)
 
 /** True while any download transfer is active. The analyser stays at utility QoS. */
 internal expect fun setAnalysisTransferActive(active: Boolean)
+
+/**
+ * One-shot warm override. iOS still stops at serious or critical heat.
+ * Memory only: this is not a setting, and it does not change "only while charging".
+ */
+internal expect fun setAnalysisWarmOverride(on: Boolean)

@@ -4,7 +4,6 @@ import com.nuvio.app.core.logging.InAppLogger
 import com.nuvio.app.features.analysis.AnalysisPower
 import com.nuvio.app.features.analysis.MediaAnalyzerPlatform
 import com.nuvio.app.features.analysis.analysisDiagnosticsLine
-import com.nuvio.app.features.analysis.analysisMayStart
 import com.nuvio.app.features.analysis.analysisPauseReason
 import com.nuvio.app.features.analysis.analysisQosLabel
 import com.nuvio.app.features.analysis.analysisThrottleLevel
@@ -314,17 +313,23 @@ internal object PlaybackPriority {
      * Live heat, read again before a start. A stored throttle of 0 is not enough:
      * the power path checks this, including after a hold whose reason was "power".
      */
+    fun refreshAnalysisHold() {
+        publishAnalysisThrottle(videoPlaying = analysisPictureMoving(com.nuvio.app.features.streams.epochMs()))
+    }
+
     fun pauseReasonNow(): String? {
         val playing = analysisPictureMoving(com.nuvio.app.features.streams.epochMs())
         publishAnalysisThrottle(videoPlaying = playing)
         val power = AnalysisPower.snapshot()
-        val reason = analysisPauseReason(playing, power.thermal, power.lowPowerMode, transfersActive)
+        val reason = com.nuvio.app.features.analysis.effectiveAnalysisPauseReason(
+            playing,
+            power.thermal,
+            power.lowPowerMode,
+            transfersActive,
+            warmOverride = com.nuvio.app.features.analysis.AnalysisWarmOverride.armed,
+        )
         if (reason != null && reason != appliedPauseReason) publishAnalysisThrottle(videoPlaying = playing)
-        return if (analysisMayStart(playing, power.thermal, power.lowPowerMode, transfersActive)) {
-            null
-        } else {
-            reason ?: "power"
-        }
+        return reason
     }
 
     /** Null while analysis may run. Otherwise playback, strain, heat, or Low Power Mode. */
@@ -558,16 +563,18 @@ internal object PlaybackPriority {
             thermal = power.thermal,
             lowPowerMode = power.lowPowerMode,
             transferActive = transfersActive,
+            warmOverride = com.nuvio.app.features.analysis.AnalysisWarmOverride.armed,
         )
         val reason = when (next) {
             0 -> null
             1 -> "playback"
             2 -> "playback-strained"
-            else -> analysisPauseReason(
+            else -> com.nuvio.app.features.analysis.effectiveAnalysisPauseReason(
                 videoPlaying = false,
                 power.thermal,
                 power.lowPowerMode,
                 transfersActive,
+                warmOverride = com.nuvio.app.features.analysis.AnalysisWarmOverride.armed,
             ) ?: "power"
         }
         if (next == appliedAnalysisThrottle && reason == appliedPauseReason) return

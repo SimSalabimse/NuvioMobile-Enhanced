@@ -304,6 +304,20 @@ internal object MediaAnalysisScheduler {
         kick(startDelayMs = 0L)
     }
 
+    /**
+     * Run the queue once despite fair heat while a download is transferring.
+     * Serious or critical heat still stops it. The charging setting is left alone.
+     * The override is forgotten when the pass ends.
+     */
+    fun analyseAnyway() {
+        val power = AnalysisPower.snapshot()
+        val reason = com.nuvio.app.features.downloads.PlaybackPriority.pauseReasonNow()
+        if (!warmOverrideMayArm(reason, power.thermal)) return
+        AnalysisWarmOverride.arm()
+        com.nuvio.app.features.downloads.PlaybackPriority.refreshAnalysisHold()
+        kick(startDelayMs = 0L)
+    }
+
     /** Drops the stored results of [items] and analyses them again. */
     fun reanalyse(items: List<DownloadItem>) {
         if (currentUiFixture().playsBundledClip()) return
@@ -438,6 +452,10 @@ internal object MediaAnalysisScheduler {
             } while (runAgain.value && scopeActive())
             return finished
         } finally {
+            if (AnalysisWarmOverride.armed) {
+                AnalysisWarmOverride.reset()
+                com.nuvio.app.features.downloads.PlaybackPriority.refreshAnalysisHold()
+            }
             val followUp = runAgain.getAndSet(false)
             runMutex.unlock()
             // This coroutine may still be the active job, so kick() would only set the flag again.
@@ -469,6 +487,7 @@ internal object MediaAnalysisScheduler {
             // Heat is read again before every start, including the reason=power path.
             val pauseReason = com.nuvio.app.features.downloads.PlaybackPriority.pauseReasonNow()
             if (pauseReason != null) {
+                AnalysisWarmOverride.stopIfHot(pauseReason)
                 if (fromBackgroundTask) return false
                 val waiting = analysisWaitJob(pauseReason)
                 if (MediaAnalysisStatus.job.value != waiting) {
