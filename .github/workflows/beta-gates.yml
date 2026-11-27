@@ -100,19 +100,50 @@ jobs:
       - name: Prefetch Robolectric
         run: |
           set -euo pipefail
-          version="14-robolectric-10818077-i7"
-          dest="${HOME}/.m2/repository/org/robolectric/android-all-instrumented/${version}"
-          mkdir -p "$dest"
-          url="https://repo1.maven.org/maven2/org/robolectric/android-all-instrumented/${version}"
-          # A 429's Retry-After waited out the whole job. Cap the retries.
-          curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 --retry-max-time 60 \
-            --connect-timeout 20 --max-time 120 \
-            -o "${dest}/android-all-instrumented-${version}.jar" \
-            "${url}/android-all-instrumented-${version}.jar"
-          curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 --retry-max-time 30 \
-            --connect-timeout 20 --max-time 30 \
-            -o "${dest}/android-all-instrumented-${version}.pom" \
-            "${url}/android-all-instrumented-${version}.pom"
+          # Robolectric 4.16 skips its own download when these jars are already in
+          # ~/.m2. Host tests use SDK 26, 28, 34, and 36. Maven Central 429s this
+          # runner and sends a long Retry-After. curl --retry waits that out, and
+          # --retry-max-time makes the runner curl give up immediately while still
+          # exiting 0, so the jar never lands and every SDK test fails.
+          versions=(
+            "8.0.0_r4-robolectric-r1-i7"
+            "9-robolectric-4913185-2-i7"
+            "14-robolectric-10818077-i7"
+            "16-robolectric-13921718-i7"
+          )
+          mirrors=(
+            "https://maven-central.storage-download.googleapis.com/maven2"
+            "https://repo1.maven.org/maven2"
+          )
+          fetch_jar() {
+            local version="$1"
+            local name="android-all-instrumented-${version}.jar"
+            local dest="${HOME}/.m2/repository/org/robolectric/android-all-instrumented/${version}/${name}"
+            local attempt mirror url magic
+            mkdir -p "$(dirname "$dest")"
+            for attempt in 1 2 3 4 5; do
+              for mirror in "${mirrors[@]}"; do
+                url="${mirror}/org/robolectric/android-all-instrumented/${version}/${name}"
+                rm -f "$dest"
+                # --retry 0 ignores Retry-After. A 429 must not stall or look successful.
+                if curl -fL --retry 0 --connect-timeout 20 --max-time 180 -o "$dest" "$url" \
+                  && [[ "$(stat -c%s "$dest")" -gt 10000000 ]]; then
+                  magic="$(od -An -t x1 -N 2 "$dest" | tr -d ' \n')"
+                  if [[ "$magic" == "504b" ]]; then
+                    echo "Prefetched ${name} ($(stat -c%s "$dest") bytes) from ${mirror}"
+                    return 0
+                  fi
+                fi
+                rm -f "$dest"
+              done
+              sleep $((attempt * 2))
+            done
+            echo "Failed to prefetch ${name}" >&2
+            return 1
+          }
+          for version in "${versions[@]}"; do
+            fetch_jar "$version"
+          done
 
       - name: Run host tests
         run: |
