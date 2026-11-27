@@ -53,6 +53,26 @@ internal fun analysisHoldMessage(reason: String): String = when (reason) {
     else -> "Paused"
 }
 
+/**
+ * A one-shot "Analyse anyway" skips only the warm pause (fair heat while a download runs).
+ * Serious and critical heat, playback, Low Power Mode, and the charging setting still hold.
+ */
+internal fun warmOverrideMayArm(reason: String?, thermal: AnalysisThermal): Boolean =
+    reason == "download" && thermal != AnalysisThermal.Serious && thermal != AnalysisThermal.Critical
+
+/** The pause the queue actually honours. A warm override does not hide serious or critical heat. */
+internal fun effectiveAnalysisPauseReason(
+    videoPlaying: Boolean,
+    thermal: AnalysisThermal,
+    lowPowerMode: Boolean,
+    transferActive: Boolean = false,
+    warmOverride: Boolean = false,
+): String? {
+    val reason = analysisPauseReason(videoPlaying, thermal, lowPowerMode, transferActive)
+    if (warmOverride && reason == "download") return null
+    return reason
+}
+
 /** Live heat. A stored throttle of 0 does not allow a start while this is false. */
 internal fun analysisMayStart(
     videoPlaying: Boolean,
@@ -80,11 +100,19 @@ internal fun analysisThrottleLevel(
     thermal: AnalysisThermal = AnalysisThermal.Nominal,
     lowPowerMode: Boolean = false,
     transferActive: Boolean = false,
+    warmOverride: Boolean = false,
 ): Int {
     if (videoPlaying) {
         return if (level == com.nuvio.app.features.downloads.PlaybackPriority.Level.Strained) 2 else 1
     }
-    return if (analysisPauseReason(videoPlaying = false, thermal, lowPowerMode, transferActive) != null) 3 else 0
+    val paused = effectiveAnalysisPauseReason(
+        videoPlaying = false,
+        thermal,
+        lowPowerMode,
+        transferActive,
+        warmOverride,
+    ) != null
+    return if (paused) 3 else 0
 }
 
 /** Utility while a player is open, analysis is held, or any download is transferring. */
@@ -109,6 +137,31 @@ internal fun analysisDiagnosticsLine(
     val lowPower = if (power.lowPowerMode) "true" else "false"
     return "analysis ${token(event)} job=${token(job)} reason=${token(reason)} qos=${token(qos)} " +
         "thermal=$thermal lowPower=$lowPower"
+}
+
+/**
+ * In-memory one-shot for "Analyse anyway". It is not saved, and it does not change
+ * "Analyse only while charging". Serious or critical heat clears it.
+ */
+internal object AnalysisWarmOverride {
+    var armed: Boolean = false
+        private set
+
+    fun arm() {
+        if (armed) return
+        armed = true
+        setAnalysisWarmOverride(true)
+    }
+
+    fun reset() {
+        armed = false
+        setAnalysisWarmOverride(false)
+    }
+
+    fun stopIfHot(reason: String?) {
+        if (!armed) return
+        if (reason == "thermal-serious" || reason == "thermal-critical") reset()
+    }
 }
 
 private fun token(raw: String): String {

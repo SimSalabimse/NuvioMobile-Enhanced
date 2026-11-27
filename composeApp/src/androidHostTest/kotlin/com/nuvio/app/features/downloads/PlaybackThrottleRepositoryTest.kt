@@ -376,6 +376,7 @@ class PlaybackThrottleRepositoryTest {
         markNext(1)
 
         PlaybackPriority.sessionStarted(isLocalFile = false)
+        snapshots(buffering = false, forMs = 1_000L)
         fake.finishOpens()
 
         assertSlotsMatchStatuses()
@@ -387,6 +388,7 @@ class PlaybackThrottleRepositoryTest {
         startTwoDownloads()
         markNext(1)
         PlaybackPriority.sessionStarted(isLocalFile = false)
+        snapshots(buffering = false, forMs = 1_000L)
         val demoted = DownloadsRepository.uiState.value.items.single { it.status == DownloadStatus.Queued }.id
 
         fake.finish(demoted)
@@ -472,6 +474,7 @@ class PlaybackThrottleRepositoryTest {
         }
         PlaybackPriority.sessionEnded()
         PlaybackPriority.sessionStarted(isLocalFile = false)
+        snapshots(buffering = false, forMs = 30_000L)
         val starts = fake.starts.toMap()
         PartialPlaybackLease.acquire("e3")
         try {
@@ -539,6 +542,146 @@ class PlaybackThrottleRepositoryTest {
             com.nuvio.app.features.analysis.MediaAnalysisScheduler.kickHookForTest = null
         }
         assertEquals(listOf(0L), seen)
+    }
+
+    @Test
+    fun coldStartWithNoPlayerLeavesTheGateOpenAndTheNormalLabel() {
+        PlaybackPriority.sessionStarted(isLocalFile = false)
+        clock += 250L
+        position += 250L
+        movingSnapshot()
+        assertTrue(PlaybackPriority.isWatching(), "a moving picture holds the gate before launch")
+        PlaybackPriority.clearStaleSession()
+
+        assertFalse(PlaybackPriority.isWatching())
+        assertEquals(PlaybackPriority.Level.Normal, PlaybackPriority.level)
+        assertEquals(MAX_ACTIVE_DOWNLOADS, PlaybackPriority.downloadCap())
+
+        PlaybackPriority.sessionStarted(isLocalFile = false)
+        assertFalse(PlaybackPriority.isWatching(), "attaching a player is not watching")
+        startTwoDownloads()
+        assertEquals(setOf("e1", "e2"), fake.running)
+        assertNormalDownloadLabel()
+
+        clock += 250L
+        PlaybackPriority.noteSnapshot(
+            wantsToPlay = true,
+            buffering = true,
+            positionMs = 0L,
+            nowMs = clock,
+            pictureMoving = false,
+        )
+        assertFalse(PlaybackPriority.isWatching(), "play-when-ready while the picture is still does not count")
+        assertEquals(setOf("e1", "e2"), fake.running)
+        assertNormalDownloadLabel()
+    }
+
+    @Test
+    fun playingEngagesTheGateAndStopDismissOrBackgroundReleasesIt() {
+        startTwoDownloads()
+        markNext(1)
+        PlaybackPriority.sessionStarted(isLocalFile = false)
+        clock += 250L
+        position += 250L
+        movingSnapshot()
+
+        assertTrue(PlaybackPriority.isWatching())
+        assertEquals(1, PlaybackPriority.downloadCap())
+        assertEquals(1, fake.running.size)
+        val held = DownloadsRepository.uiState.value.heldForPlayback
+        assertEquals(1, held.size)
+        assertTrue(saysPausedWhileWatching(held.single()))
+
+        clock += 250L
+        PlaybackPriority.noteSnapshot(
+            wantsToPlay = false,
+            buffering = false,
+            positionMs = position,
+            nowMs = clock,
+            pictureMoving = false,
+        )
+        assertFalse(PlaybackPriority.isWatching())
+        assertEquals(setOf("e1", "e2"), fake.running)
+        assertNormalDownloadLabel()
+
+        markNext(1)
+        clock += 250L
+        position += 250L
+        movingSnapshot()
+        assertEquals(1, fake.running.size)
+        PlaybackPriority.sessionEnded()
+        assertFalse(PlaybackPriority.isWatching())
+        assertEquals(MAX_ACTIVE_DOWNLOADS, PlaybackPriority.downloadCap())
+        assertEquals(setOf("e1", "e2"), fake.running)
+        assertNormalDownloadLabel()
+
+        PlaybackPriority.sessionStarted(isLocalFile = false)
+        markNext(1)
+        clock += 250L
+        position += 250L
+        movingSnapshot()
+        assertEquals(1, fake.running.size)
+        PlaybackPriority.noteAppBackground(inPictureInPicture = false)
+        assertFalse(PlaybackPriority.isWatching())
+        assertEquals(setOf("e1", "e2"), fake.running)
+        assertNormalDownloadLabel()
+    }
+
+    @Test
+    fun aStaleSnapshotReleasesTheGate() {
+        startTwoDownloads()
+        markNext(1)
+        PlaybackPriority.sessionStarted(isLocalFile = false)
+        clock += 250L
+        position += 250L
+        movingSnapshot()
+        assertEquals(1, fake.running.size)
+
+        val later = clock + 4_000L
+        assertFalse(PlaybackPriority.isWatching(later))
+        PlaybackPriority.releaseStaleWatchHold(later)
+        assertFalse(PlaybackPriority.isWatching())
+        assertEquals(setOf("e1", "e2"), fake.running)
+        assertNormalDownloadLabel()
+    }
+
+    private fun movingSnapshot() {
+        PlaybackPriority.noteSnapshot(
+            wantsToPlay = true,
+            buffering = false,
+            positionMs = position,
+            nowMs = clock,
+            pictureMoving = true,
+        )
+    }
+
+    private fun assertNormalDownloadLabel() {
+        val state = DownloadsRepository.uiState.value
+        assertTrue(state.heldForPlayback.isEmpty())
+        state.items.forEach { item ->
+            assertFalse(saysPausedWhileWatching(item.id), "${item.id} says it is waiting on playback")
+        }
+    }
+
+    private fun saysPausedWhileWatching(id: String): Boolean {
+        val state = DownloadsRepository.uiState.value
+        val item = state.items.single { it.id == id }
+        val reason = downloadSlowReason(
+            DownloadSlowSignals(
+                status = item.status,
+                pauseWhileWatching = false,
+                playerActive = PlaybackPriority.isWatching(),
+                heldForPlayback = item.id in state.heldForPlayback,
+                bufferingThrottle = PlaybackPriority.level == PlaybackPriority.Level.Strained,
+                activeAhead = state.items.count { it.status == DownloadStatus.Downloading },
+                onlyOnWifi = false,
+                onWifi = true,
+                thermalBlocks = false,
+                retryCount = 0,
+                downloadedBytes = item.downloadedBytes,
+            ),
+        )
+        return reason == DownloadSlowReason.PausedWhileWatching
     }
 
     private fun startThreeDownloads() {

@@ -94,9 +94,47 @@ internal fun analysisChipKinds(item: DownloadItem, parts: AnalysisParts): List<A
     }.filter { it.second != AnalysisPart.Off }.map { it.first }
 }
 
+/**
+ * Why the whole analysis queue is waiting. Every queued row uses this, and so does
+ * Settings > Downloads > On-device analysis.
+ */
+enum class AnalysisQueuePause {
+    Charger,
+    Playback,
+    /** Serious or critical heat. */
+    Heat,
+    /** Fair heat while a download is transferring. */
+    Warm,
+    LowPower,
+    Other,
+}
+
+internal fun analysisQueuePause(job: AnalysisJobState, waitingForCharger: Boolean): AnalysisQueuePause? = when (job) {
+    AnalysisJobState.WaitingForCharger -> AnalysisQueuePause.Charger
+    AnalysisJobState.WaitingForPlayback -> AnalysisQueuePause.Playback
+    AnalysisJobState.WaitingForHeat -> AnalysisQueuePause.Heat
+    AnalysisJobState.WaitingWhileDownloading -> AnalysisQueuePause.Warm
+    AnalysisJobState.WaitingForLowPower -> AnalysisQueuePause.LowPower
+    AnalysisJobState.Paused -> AnalysisQueuePause.Other
+    AnalysisJobState.Idle -> if (waitingForCharger) AnalysisQueuePause.Charger else null
+    AnalysisJobState.Starting -> null
+    is AnalysisJobState.Running -> null
+}
+
+/** Queued and partly analysed rows take the queue pause. A finished or running file does not. */
+internal fun applyQueuePause(base: ItemAnalysisStatus, pause: AnalysisQueuePause?): ItemAnalysisStatus {
+    if (pause == null) return base
+    return when (base) {
+        ItemAnalysisStatus.Queued -> ItemAnalysisStatus.Paused(pause, parts = null)
+        is ItemAnalysisStatus.Done -> if (base.complete) base else ItemAnalysisStatus.Paused(pause, base.parts)
+        else -> base
+    }
+}
+
 sealed interface ItemAnalysisStatus {
     data object Unsupported : ItemAnalysisStatus
     data object Queued : ItemAnalysisStatus
+    data class Paused(val pause: AnalysisQueuePause, val parts: AnalysisParts?) : ItemAnalysisStatus
     data class Running(
         val stage: AnalysisStage,
         val overall: Double,
@@ -199,11 +237,23 @@ object MediaAnalysisStatus {
         val stored = MediaAnalysisStore.load(MediaAnalysisStore.keyFor(item))?.takeIf { it.fileName == item.fileName }
         val failure = _failures.value[item.id]?.takeIf { it.fileName == null || it.fileName == item.fileName }
         val parts = stored?.let { partsOf(item, it) }
-        if (failure != null) return ItemAnalysisStatus.Failed(failure.reason, parts)
-        if (parts == null) return ItemAnalysisStatus.Queued
-        val complete = listOf(parts.intro, parts.credits, parts.recap, parts.subtitleSync, parts.loudness, parts.previews)
-            .none { it == AnalysisPart.Pending }
-        return if (complete) ItemAnalysisStatus.Done(parts, true) else ItemAnalysisStatus.Done(parts, false)
+        val base = when {
+            failure != null -> ItemAnalysisStatus.Failed(failure.reason, parts)
+            parts == null -> ItemAnalysisStatus.Queued
+            else -> {
+                val complete = listOf(parts.intro, parts.credits, parts.recap, parts.subtitleSync, parts.loudness, parts.previews)
+                    .none { it == AnalysisPart.Pending }
+                ItemAnalysisStatus.Done(parts, complete)
+            }
+        }
+        val waiting = base is ItemAnalysisStatus.Queued || (base is ItemAnalysisStatus.Done && !base.complete)
+        val pause = analysisQueuePause(
+            _job.value,
+            waitingForCharger = waiting &&
+                _job.value == AnalysisJobState.Idle &&
+                MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.OnlyWhileCharging),
+        )
+        return applyQueuePause(base, pause)
     }
 
     private fun partsOf(item: DownloadItem, r: MediaAnalysisResult): AnalysisParts {
@@ -270,7 +320,9 @@ object MediaAnalysisStatus {
             total = completed.size,
             analysed = statuses.values.count { it is ItemAnalysisStatus.Done && it.complete },
             queued = statuses.filter { (_, s) ->
-                s is ItemAnalysisStatus.Queued || (s is ItemAnalysisStatus.Done && !s.complete)
+                s is ItemAnalysisStatus.Queued ||
+                    s is ItemAnalysisStatus.Paused ||
+                    (s is ItemAnalysisStatus.Done && !s.complete)
             }.keys.sortedWith(AnalysisOrder),
             failed = statuses.values.count { it is ItemAnalysisStatus.Failed },
         )

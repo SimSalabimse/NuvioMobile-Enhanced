@@ -123,7 +123,7 @@ private fun PlayerScreenRuntime.heldToDownloadedPart(
     val reason = partialDownloadWaitReason(
         status = item?.status,
         errorMessage = item?.errorMessage,
-        pauseWhileWatching = settings.pauseDuringPlayback && PlaybackPriority.level != PlaybackPriority.Level.Normal,
+        pauseWhileWatching = settings.pauseDuringPlayback && PlaybackPriority.isWatching(),
         wifiOnly = settings.onlyOnWifi,
         onWifi = DownloadNetworkGuard.isOnWifi(),
         thermalBlocks = DownloadThermalGate.blocksNextFile(),

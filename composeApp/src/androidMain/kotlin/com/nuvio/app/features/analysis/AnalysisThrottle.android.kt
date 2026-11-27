@@ -7,3 +7,5 @@ internal actual fun setAnalysisPlayerSessionOpen(open: Boolean) = Unit
 internal actual fun setAnalysisActiveJob(jobId: String) = Unit
 
 internal actual fun setAnalysisTransferActive(active: Boolean) = Unit
+
+internal actual fun setAnalysisWarmOverride(on: Boolean) = Unit
