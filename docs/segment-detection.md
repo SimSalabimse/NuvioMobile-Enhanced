@@ -53,3 +53,5 @@ Credits under 15 seconds are kept only when they finish the file. A short shared
 - It does not treat a published TheIntroDB time as one of your own submissions.
 - It does not write playback progress while submitting.
 - It does not put API keys or stream URLs in the decision log. The log is a `segment` line per type: candidates, signal, accepted, times, and why.
+
+A mark you save also stores a compact print of that window for the whole show. Later episodes can show up to three matches of each type. The sentence in the download row is “Detected from your marks”. That path is specified in [prints/PRINT_FORMAT_v1.md](prints/PRINT_FORMAT_v1.md). It is not submitted to TheIntroDB. A general model that would guess without one of your marks is off.

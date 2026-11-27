@@ -564,4 +564,50 @@ describe("worker protocol", () => {
     });
     expect(missingType.status).toBe(200);
   });
+
+  it("stores a print blob and returns the same plaintext", async () => {
+    expect((await createSpace(space(12))).status).toBe(201);
+    const plaintext = "{\"algo\":\"nuvio-print-1\",\"deleted\":false,\"durationMs\":1800000,\"endMs\":30000,\"episode\":1,\"frames\":\"AQAAAAIAAAADAAAABAAAAA==\",\"hlc\":{\"counter\":1,\"deviceId\":\"device-a\",\"wallMs\":1700000000000},\"id\":\"print/tmdb:100/intro/intro/0\",\"kind\":\"print\",\"markId\":\"intro\",\"originMs\":15000,\"padMs\":5000,\"part\":0,\"parts\":1,\"season\":1,\"segmentType\":\"intro\",\"showId\":\"tmdb:100\",\"startMs\":20000,\"stepMs\":100,\"v\":1}";
+    const blobId = "55555555-5555-4555-8555-555555555555";
+    const nonce = decodeB64(cryptoVector.nonceBase64);
+    if (nonce === null) throw new Error("nonce");
+    const cipher = encodeB64(await encryptBlob(
+      encKey,
+      nonce,
+      associatedData({
+        formatVersion: 1,
+        spaceId: space(12),
+        blobId,
+        deviceId: "device-a",
+        kind: "print",
+      }),
+      new TextEncoder().encode(plaintext),
+    ));
+    const pushed = await call(`/v1/spaces/${space(12)}/batches`, {
+      method: "POST",
+      headers: bearer(TOKEN),
+      body: JSON.stringify({
+        deviceId: "device-a",
+        blobs: [{ id: blobId, v: 1, kind: "print", nonce: cryptoVector.nonceBase64, ciphertext: cipher }],
+      }),
+    });
+    expect(pushed.status).toBe(200);
+    const pulled = await call(`/v1/spaces/${space(12)}/blobs?cursor=0&limit=10`, { headers: bearer(TOKEN, false) });
+    expect(pulled.status).toBe(200);
+    const body = await pulled.json() as { blobs: Array<{ id: string; nonce: string; ciphertext: string; deviceId: string; kind: string; v: number }> };
+    expect(body.blobs).toHaveLength(1);
+    expect(body.blobs[0]?.kind).toBe("print");
+    const nonceBytes = decodeB64(body.blobs[0]!.nonce);
+    const cipherBytes = decodeB64(body.blobs[0]!.ciphertext);
+    if (nonceBytes === null || cipherBytes === null) throw new Error("encoding");
+    const plain = await decryptBlob(encKey, nonceBytes, associatedData({
+      formatVersion: 1,
+      spaceId: space(12),
+      blobId: body.blobs[0]!.id,
+      deviceId: body.blobs[0]!.deviceId,
+      kind: "print",
+    }), cipherBytes);
+    expect(new TextDecoder().decode(plain)).toBe(plaintext);
+    expect(parseRecord(JSON.parse(new TextDecoder().decode(plain)))?.record.kind).toBe("print");
+  });
 });

@@ -14,6 +14,7 @@ import {
   type LiveAlias,
   type LiveDetection,
   type LiveMark,
+  type LivePrint,
   type LiveSubmission,
   type ParsedRecord,
   type SegmentType,
@@ -102,11 +103,34 @@ export interface TombstoneState {
   purgeAfterMs: number;
 }
 
+export interface PrintState {
+  algo: string;
+  durationMs: number;
+  endMs: number;
+  episode: number | null;
+  frames: string;
+  hlc: Hlc;
+  id: string;
+  markId: string;
+  originMs: number;
+  padMs: number;
+  part: number;
+  parts: number;
+  season: number | null;
+  segmentType: SegmentType;
+  showId: string;
+  startMs: number;
+  stepMs: number;
+  v: number;
+}
+
 export interface MergedState {
   rejected: number;
   shows: ShowState[];
   submissions: SubmissionState[];
   tombstones: TombstoneState[];
+  /** Omitted when empty so a library with no prints stays byte-identical to v1 vectors. */
+  prints?: PrintState[];
 }
 
 export interface AnalyseQuery {
@@ -134,6 +158,7 @@ export function mergeRecords(inputs: readonly unknown[], nowMs: number): MergedS
   const marks: LiveMark[] = [];
   const detections: LiveDetection[] = [];
   const submissions: LiveSubmission[] = [];
+  const prints: LivePrint[] = [];
   for (const winner of winners) {
     if (winner.record.deleted) {
       const purgeAfterMs = winner.record.hlc.wallMs + TOMBSTONE_KEEP_MS;
@@ -150,6 +175,7 @@ export function mergeRecords(inputs: readonly unknown[], nowMs: number): MergedS
     if (winner.record.kind === "mark") marks.push(winner.record);
     else if (winner.record.kind === "detection") detections.push(winner.record);
     else if (winner.record.kind === "submission") submissions.push(winner.record);
+    else if (winner.record.kind === "print") prints.push(winner.record);
   }
   const episodes = new Map<string, { showId: string; season: number | null; episode: number | null; marks: LiveMark[]; detections: LiveDetection[] }>();
   const addEpisode = (showId: string, season: number | null, episode: number | null) => {
@@ -208,12 +234,37 @@ export function mergeRecords(inputs: readonly unknown[], nowMs: number): MergedS
     }))
     .sort((left, right) => cmp(left.accountScope, right.accountScope) || cmp(left.id, right.id));
   tombstones.sort((left, right) => cmp(left.kind, right.kind) || cmp(left.id, right.id));
-  return {
+  const merged: MergedState = {
     rejected,
     shows: [...shows.values()].sort((left, right) => cmp(left.showId, right.showId)),
     submissions: submissionStates,
     tombstones,
   };
+  if (prints.length > 0) {
+    merged.prints = prints
+      .map((print) => ({
+        algo: print.algo,
+        durationMs: print.durationMs,
+        endMs: print.endMs,
+        episode: print.episode,
+        frames: print.frames,
+        hlc: print.hlc,
+        id: print.id,
+        markId: print.markId,
+        originMs: print.originMs,
+        padMs: print.padMs,
+        part: print.part,
+        parts: print.parts,
+        season: print.season,
+        segmentType: print.segmentType,
+        showId: print.showId,
+        startMs: print.startMs,
+        stepMs: print.stepMs,
+        v: print.v,
+      }))
+      .sort((left, right) => cmp(left.id, right.id));
+  }
+  return merged;
 }
 
 export function shouldAnalyse(state: MergedState, query: AnalyseQuery): boolean {
@@ -292,7 +343,7 @@ function buildGraph(winners: ParsedRecord[]): { canonicalOf: (showId: string) =>
       addSpelling(record.from);
       addSpelling(record.to);
       union(normShowId(record.from), normShowId(record.to));
-    } else {
+    } else if (record.kind !== "print") {
       addSpelling(record.showId);
     }
   }

@@ -23,8 +23,9 @@ A space carries three kinds of user data, each as its own record:
 | `detection` | A time the analyzer found, or an explicit "not found" after the analyzer ran. |
 | `submission` | One row of this profile's TheIntroDB submissions list, scoped by a hash of the account key. |
 | `alias` | Two show ids that name the same title. |
+| `print` | One part of a compact audio print learned from one of your own marks. The format is `docs/prints/PRINT_FORMAT_v1.md`. |
 
-These values stay on the device and have no field in this format: audio fingerprints, energy, loudness, thumbnail sheets, file names, the season checked/not-checked cache, `skip_source_ledger_v1`, temporary download ids, debrid keys, the TorBox key, addon URLs, Nuvio and Trakt tokens, the TheIntroDB key itself, watch progress, and watch history.
+Full-episode audio fingerprints, energy, loudness, thumbnail sheets, file names, the season checked/not-checked cache, `skip_source_ledger_v1`, temporary download ids, debrid keys, the TorBox key, addon URLs, Nuvio and Trakt tokens, the TheIntroDB key itself, watch progress, and watch history stay on the device and have no field in this format. A `print` is not that fingerprint. It is only the marked window, plus a 5 second pad, split so one record stays within the plaintext cap.
 
 An inferred "not found" is a `detection` with `outcome: "not_found"`. It is never written as a `mark` with `presence: "none"`. Only a person sets "none here".
 
@@ -72,6 +73,7 @@ Writers translate those into the ids in this section. `outro` in the analysis fi
 | Detection | `det/{showId}/{episodeKey}/{segmentType}/{segmentIndex}/{durationMs}/a{algorithmVersion}` |
 | Submission | `submission/{accountScope}/{remoteId}` |
 | Alias | `alias/{from}` |
+| Print part | `print/{showId}/{segmentType}/{markId}/{part}` |
 
 UUID v4 is lowercase and matches `^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`. Space ids and blob ids use the same form.
 
@@ -213,6 +215,41 @@ A submission never becomes a mark and never suppresses analysis. Two account sco
 
 `from` and `to` are distinct show ids. The id is `alias/` + `from`. One live alias per source id; a newer clock can point it somewhere else. The link is undirected for merging.
 
+### Print
+
+One part of a show print. The bytes and the local file are specified in `docs/prints/PRINT_FORMAT_v1.md`. Unknown keys are rejected. `v` is 1 and `algo` is `nuvio-print-1`.
+
+```json
+{
+  "algo": "nuvio-print-1",
+  "deleted": false,
+  "durationMs": 1800000,
+  "endMs": 30000,
+  "episode": 1,
+  "frames": "AQAAAAIAAAADAAAABAAAAA==",
+  "hlc": { "wallMs": 1700000000000, "counter": 1, "deviceId": "device-a" },
+  "id": "print/tmdb:100/intro/intro/0",
+  "kind": "print",
+  "markId": "intro",
+  "originMs": 15000,
+  "padMs": 5000,
+  "part": 0,
+  "parts": 1,
+  "season": 1,
+  "segmentType": "intro",
+  "showId": "tmdb:100",
+  "startMs": 20000,
+  "stepMs": 100,
+  "v": 1
+}
+```
+
+`segmentType` is `intro`, `recap`, `credits`, or `preview`. The local analysis name `outro` is `credits` here. `markId` is that type, or that type plus `-` and an index from 2 to 99 (`intro-2`). `part` is 0 or greater and less than `parts`. `parts` is 1 to 99. `stepMs` is 100. `padMs` is 0 to 10000. `frames` is standard base64 of little-endian uint32 sub-fingerprints, 1 to 1200 frames. `startMs` and `endMs` are the mark, not the pad. `originMs` is the absolute time of frame 0. Season and episode are both null for a movie, or both integers as in section 2.
+
+The id is `print/` + show id + `/` + segment type + `/` + mark id + `/` + part. Show ids contain `:`, not `/`, so the id splits into five pieces.
+
+A print does not create a skip mark, does not turn analysis off, and is not a TheIntroDB submission. Nothing in this format submits a range.
+
 ## 6. Merge
 
 Inputs are the decrypted records from every blob the device has, from the Worker and from the folder. Records that fail section 5 are counted as `rejected` and dropped. The rest are merged as follows. `nowMs` is the device's current Unix time in milliseconds.
@@ -315,7 +352,9 @@ The merged value is exactly:
 
 Mark views are sorted by `id`. Detection views are sorted by `id`. Episodes are sorted by `season * 1000000 + episode`, and a movie (null season) sorts first. Shows are sorted by `showId`.
 
-View objects use the fields in `sync-worker/test/reference/merge.ts` (`MarkView`, `DetectionView`, `EffectiveSegment`, `SubmissionState`, `TombstoneState`). `suppressedBy: null` is present, not omitted. `algorithm` on an effective mark is JSON `null`.
+View objects use the fields in `sync-worker/test/reference/merge.ts` (`MarkView`, `DetectionView`, `EffectiveSegment`, `SubmissionState`, `TombstoneState`, `PrintState`). `suppressedBy: null` is present, not omitted. `algorithm` on an effective mark is JSON `null`.
+
+`prints` is present only when the merge kept at least one live print. An empty list is omitted, so a library with no prints stays byte-identical to the vectors that predate this kind. Prints are sorted by `id`. A print does not become a mark, does not change `shouldAnalyse`, and does not join the show graph. A tombstone for a print uses the same four tombstone keys as the other kinds.
 
 The byte-for-byte oracle is `mergedCanonical` in each vector: canonical JSON of this value.
 
@@ -400,7 +439,7 @@ The same object is a Worker batch item and an entry in a folder file.
 }
 ```
 
-`v` is the number 1. `kind` is `mark`, `detection`, `submission`, or `alias`, and it is the kind inside the plaintext. Both are routing fields covered by the associated data.
+`v` is the number 1. `kind` is `mark`, `detection`, `submission`, `alias`, or `print`, and it is the kind inside the plaintext. Both are routing fields covered by the associated data.
 
 Standard base64 is RFC 4648 with `+` `/` and `=` padding. Non-canonical padding and extra characters are rejected. The decoded ciphertext is 16 to 24576 bytes.
 
@@ -503,7 +542,7 @@ Bearer required. Body, no extra keys:
 }
 ```
 
-Blob ids are unique inside the batch. No extra keys on a blob. `v` has to be the number 1. `kind` has to be one of the four record kinds.
+Blob ids are unique inside the batch. No extra keys on a blob. `v` has to be the number 1. `kind` has to be one of the record kinds: `mark`, `detection`, `submission`, `alias`, or `print`.
 
 Response:
 
@@ -611,6 +650,7 @@ Blob bytes are the section 9 envelope. Decrypt, then merge under section 6. Orde
 | `submission-scope.json` | Two fake account keys stay in two scopes. The strings are fakes, not API keys. |
 | `zero-duration-mark.json` | `durationMs: 0` on a range covers every file length of that index only. |
 | `rejected.json` | Two malformed objects increment `rejected` and add no fields. |
+| `print-roundtrip.json` | One live `print` part round-trips. A newer tombstone removes it. Prints do not turn analysis off. |
 
 The passphrase in the crypto vectors is `test-passphrase-not-a-secret`. It is a test fixture.
 
@@ -624,4 +664,4 @@ The passphrase in the crypto vectors is `test-passphrase-not-a-secret`. It is a 
 - Skip blobs that fail authentication, including a kind that does not match the plaintext.
 - Treat `receivedAtMs` and `seq` as transport. Conflict rules use the record clock. There is no push high-water field.
 - Show a synced time as coming from `hlc.deviceId`. Apply it only when section 6 says it is applied and the cut matches.
-- Leave fingerprints and the other out-of-scope values off the device that created them.
+- Leave full-episode fingerprints and the other out-of-scope values on the device that created them. A `print` record may leave the device: it is the marked window only, in the shape `docs/prints/PRINT_FORMAT_v1.md` describes.

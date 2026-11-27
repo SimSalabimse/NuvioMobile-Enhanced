@@ -68,6 +68,11 @@ internal data class MediaAnalysisResult(
     val userSegments: Map<String, UserSegment> = emptyMap(),
     /** Segment types found by matching another episode's user mark. */
     val learnedTypes: Set<String> = emptySet(),
+    /**
+     * Ranges found from a per-show print of one of your marks.
+     * At most three of one type. Empty on results saved before show prints.
+     */
+    val learnedRanges: List<LearnedRange> = emptyList(),
     /** Segment types found from a clip of another episode ([SiblingClipReference]): type to episode. */
     val foundUsing: Map<String, Int> = emptyMap(),
     /**
@@ -111,6 +116,15 @@ internal data class MediaAnalysisResult(
     val subtitleSyncSpeed: Double? = null,
     val subtitleSyncDelayMs: Long? = null,
     val subtitleSyncSourceKey: String? = null,
+)
+
+/** One range found by matching a stored show print. [printId] is `type/markId`. */
+@Serializable
+internal data class LearnedRange(
+    val type: String,
+    val startMs: Long,
+    val endMs: Long,
+    val printId: String,
 )
 
 /** How sure a detected intro or credits range is. More agreeing siblings win, then fewer bit errors. */

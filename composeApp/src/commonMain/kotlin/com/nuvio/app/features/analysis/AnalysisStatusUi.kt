@@ -28,6 +28,7 @@ import nuvio.composeapp.generated.resources.analysis_next_paused_power
 import nuvio.composeapp.generated.resources.analysis_next_paused_battery
 import nuvio.composeapp.generated.resources.analysis_next_paused_heat
 import nuvio.composeapp.generated.resources.analysis_next_done
+import nuvio.composeapp.generated.resources.analysis_detected_from_marks
 import nuvio.composeapp.generated.resources.analysis_part_intro
 import nuvio.composeapp.generated.resources.analysis_part_credits
 import nuvio.composeapp.generated.resources.analysis_part_a11y
@@ -245,6 +246,22 @@ fun AnalysisStatusRow(item: DownloadItem) {
             status.parts?.let { PartChips(item, it) }
         }
     }
+        val showLearned = status is ItemAnalysisStatus.Done ||
+            status is ItemAnalysisStatus.Paused ||
+            status is ItemAnalysisStatus.Failed
+        if (showLearned) {
+            val learned = remember(item.parentMetaId, item.seasonNumber, item.episodeNumber, revision) {
+                val key = MediaAnalysisStore.keyFor(item.parentMetaId, item.seasonNumber, item.episodeNumber)
+                analysisRowLearnedLine(MediaAnalysisStore.load(key))
+            }
+            if (learned != null) {
+                Text(
+                    text = stringResource(Res.string.analysis_detected_from_marks),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = muted,
+                )
+            }
+        }
         if (nextText != null && !queuePaused) StatusLine(Icons.Rounded.GraphicEq, nextText, muted)
     }
 }

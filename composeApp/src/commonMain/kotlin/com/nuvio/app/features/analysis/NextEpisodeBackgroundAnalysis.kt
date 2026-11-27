@@ -156,6 +156,7 @@ internal fun MediaAnalysisResult.keepingStoredAnalysis(previous: MediaAnalysisRe
             userSegments = previous.userSegments,
             rejectedSegments = previous.rejectedSegments,
             learnedTypes = previous.learnedTypes,
+            learnedRanges = previous.learnedRanges,
             foundUsing = previous.foundUsing,
         )
     }
@@ -178,6 +179,7 @@ internal fun MediaAnalysisResult.keepingStoredAnalysis(previous: MediaAnalysisRe
         userSegments = previous.userSegments,
         rejectedSegments = previous.rejectedSegments,
         learnedTypes = previous.learnedTypes,
+        learnedRanges = previous.learnedRanges,
         foundUsing = previous.foundUsing,
         chapterTypes = previous.chapterTypes,
         thumbnails = previous.thumbnails ?: thumbnails,
@@ -431,19 +433,18 @@ internal object NextEpisodeAnalysisScheduler {
             }
             is Read.Ready -> {
                 currentCoroutineContext().ensureActive()
-                when (val again = gate()) {
-                    is Read.Held -> {
-                        publish(target, nextEpisodeHoldToken(again.hold))
-                        return NextEpisodeRunResult(again.hold)
-                    }
-                    Read.Closed -> {
-                        publish(target, "")
-                        return NextEpisodeRunResult(NextEpisodeAnalysisHold.None)
-                    }
-                    else -> Unit
+                val conditions = currentConditions()
+                if (!conditions.videoPlaying) {
+                    publish(target, "")
+                    return NextEpisodeRunResult(NextEpisodeAnalysisHold.None)
+                }
+                val hold = nextEpisodeAnalysisHold(conditions)
+                if (hold != NextEpisodeAnalysisHold.None) {
+                    publish(target, nextEpisodeHoldToken(hold))
+                    return NextEpisodeRunResult(hold)
                 }
                 publish(target, "subtitles")
-                val stored = store(target, read.draft)
+                val stored = store(target, read.draft, ShowPrints.forPlayback(conditions))
                 publish(target, "done")
                 NextEpisodeRunResult(NextEpisodeAnalysisHold.None, stored.key)
             }
@@ -570,7 +571,11 @@ internal object NextEpisodeAnalysisScheduler {
      * Same detector and subtitle fit as a finished download. Nothing is submitted upstream.
      * A mark, an imported segment, or a longer print already stored for this episode stays.
      */
-    private fun store(target: NextEpisodeTarget, draft: MediaAnalysisResult): MediaAnalysisResult {
+    private fun store(
+        target: NextEpisodeTarget,
+        draft: MediaAnalysisResult,
+        gate: ShowPrintGate,
+    ): MediaAnalysisResult {
         val previous = MediaAnalysisStore.load(draft.key)
         val merged = draft.keepingStoredAnalysis(previous)
         val siblings = MediaAnalysisStore.seasonSiblings(target.parentMetaId, target.season, merged.key)
@@ -588,8 +593,9 @@ internal object NextEpisodeAnalysisScheduler {
                 SubtitleSourceMemory.remember(sourceKey, fit.subSpeed, fit.subDelayMs)
             }
         }
-        MediaAnalysisStore.save(next)
-        return MediaAnalysisStore.load(next.key) ?: next
+        val finished = ShowPrints.finishEpisode(target.parentMetaId, next, gate)
+        MediaAnalysisStore.save(finished)
+        return MediaAnalysisStore.load(finished.key) ?: finished
     }
 
     private fun publish(target: NextEpisodeTarget, token: String) {

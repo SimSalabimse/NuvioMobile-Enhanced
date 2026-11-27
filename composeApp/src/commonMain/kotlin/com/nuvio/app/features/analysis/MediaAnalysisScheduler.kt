@@ -1222,6 +1222,16 @@ internal object MediaAnalysisScheduler {
                 SkipLearning.teachSeason(item.parentMetaId, season, key)
             }
         }
+        val printed = ShowPrints.syncEpisode(
+            parentMetaId = item.parentMetaId,
+            episodeKey = key,
+            reteach = true,
+            gate = ShowPrints.liveQueueGate(),
+        )
+        if (printed != null && printed != result) {
+            MediaAnalysisStore.save(printed)
+            result = printed
+        }
         InAppLogger.info(
             "Analysis",
             "analyse done id=${item.id} durationMs=${result.durationMs} lufs=${result.integratedLufs} " +

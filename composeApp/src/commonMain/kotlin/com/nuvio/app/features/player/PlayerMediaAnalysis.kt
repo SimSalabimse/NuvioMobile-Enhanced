@@ -9,6 +9,7 @@ import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.isIos
 import com.nuvio.app.features.addons.httpGetTextWithHeaders
 import com.nuvio.app.features.analysis.MediaAnalysisResult
+import com.nuvio.app.features.analysis.SEGMENT_AGREE_MS
 import com.nuvio.app.features.analysis.MediaAnalysisSettings
 import com.nuvio.app.features.analysis.MediaAnalysisStore
 import com.nuvio.app.features.analysis.decodeEnergy
@@ -116,6 +117,19 @@ internal fun onDeviceSkipIntervalsFrom(
         if (previewStart != null && previewEnd != null && previewEnd > previewStart) {
             out += SkipInterval(previewStart / 1000.0, previewEnd / 1000.0, "preview", analysis.skipProviderFor("preview"))
         }
+    }
+    for (range in analysis.learnedRanges) {
+        val allowed = when (range.type) {
+            "recap" -> recapDetection
+            "intro", "outro", "preview" -> introDetection
+            else -> false
+        }
+        if (!allowed || range.endMs <= range.startMs) continue
+        val duplicate = out.any { existing ->
+            existing.type == range.type && abs(existing.startTime * 1000.0 - range.startMs) <= SEGMENT_AGREE_MS
+        }
+        if (duplicate) continue
+        out += SkipInterval(range.startMs / 1000.0, range.endMs / 1000.0, range.type, ON_DEVICE_SKIP_PROVIDER)
     }
     return out
 }
