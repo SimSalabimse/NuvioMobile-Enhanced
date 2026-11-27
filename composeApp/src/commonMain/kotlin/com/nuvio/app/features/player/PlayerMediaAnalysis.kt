@@ -146,15 +146,19 @@ internal fun segmentTypesSyncedByAnalysis(result: MediaAnalysisResult?): Set<Str
     if (result == null) return emptySet()
     val marked = result.userSegments.keys
     return buildSet {
-        if ("intro" !in marked && result.hasAnalysedRange(result.introStartMs, result.introEndMs)) add("intro")
-        if ("recap" !in marked && result.hasAnalysedRange(result.recapStartMs, result.recapEndMs)) add("recap")
-        if ("outro" !in marked && result.hasAnalysedRange(result.creditsStartMs, result.creditsEndMs)) add("outro")
-        if ("preview" !in marked && result.hasAnalysedRange(result.previewStartMs, result.previewEndMs)) add("preview")
+        if ("intro" !in marked && !result.printMatched("intro") && result.hasAnalysedRange(result.introStartMs, result.introEndMs)) add("intro")
+        if ("recap" !in marked && !result.printMatched("recap") && result.hasAnalysedRange(result.recapStartMs, result.recapEndMs)) add("recap")
+        if ("outro" !in marked && !result.printMatched("outro") && result.hasAnalysedRange(result.creditsStartMs, result.creditsEndMs)) add("outro")
+        if ("preview" !in marked && !result.printMatched("preview") && result.hasAnalysedRange(result.previewStartMs, result.previewEndMs)) add("preview")
     }
 }
 
 private fun MediaAnalysisResult.hasAnalysedRange(startMs: Long?, endMs: Long?): Boolean =
     startMs != null && endMs != null && endMs > startMs
+
+/** A print match is not an analysed range and is not offered for submission. */
+private fun MediaAnalysisResult.printMatched(type: String): Boolean =
+    learnedRanges.any { it.type == type }
 
 /**
  * Types the submit bar may mark Auto synced. Android only: iOS keeps the bar as it is.

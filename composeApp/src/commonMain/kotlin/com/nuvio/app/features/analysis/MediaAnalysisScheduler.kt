@@ -92,6 +92,8 @@ internal fun MediaAnalysisResult.carryingKnownSegments(previous: MediaAnalysisRe
         recapStartMs = previous.recapStartMs,
         recapEndMs = previous.recapEndMs,
         recapOutcome = previous.recapOutcome,
+        learnedRanges = previous.learnedRanges,
+        learnedTypes = previous.learnedTypes,
     )
 }
 
@@ -1128,6 +1130,8 @@ internal object MediaAnalysisScheduler {
         var clipUnavailable = false
         val season = item.seasonNumber
         val episodeNumber = item.episodeNumber
+        val carried = result
+        result = result.withoutPrintOwnedTimes()
         if (season != null && episodeNumber != null &&
             MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.IntroDetection)
         ) {
@@ -1194,6 +1198,7 @@ internal object MediaAnalysisScheduler {
         if ("preview" in result.chapterTypes) {
             trace.replace("preview", chapterDecision("preview", result.previewStartMs, result.previewEndMs))
         }
+        result = result.restoringUnfilledPrintTimes(carried)
         val chaptersMs = rawChaptersMs.coerceAtLeast(0L) + chapterMark.elapsedNow().inWholeMilliseconds
         val chapterSource = if (result.chapterTypes.isEmpty()) "-" else com.nuvio.app.features.player.CHAPTER_SKIP_PROVIDER
         result = saveFingerprint(item, result) { backfillMs += it }
@@ -1222,12 +1227,15 @@ internal object MediaAnalysisScheduler {
                 SkipLearning.teachSeason(item.parentMetaId, season, key)
             }
         }
-        val printed = ShowPrints.syncEpisode(
-            parentMetaId = item.parentMetaId,
-            episodeKey = key,
-            reteach = true,
-            gate = ShowPrints.liveQueueGate(),
-        )
+        val printed = withContext(Dispatchers.Default) {
+            ShowPrints.syncEpisode(
+                parentMetaId = item.parentMetaId,
+                episodeKey = key,
+                reteach = true,
+                gate = ShowPrints.liveQueueGate(),
+                shouldStop = { !isActive },
+            )
+        }
         if (printed != null && printed != result) {
             MediaAnalysisStore.save(printed)
             result = printed

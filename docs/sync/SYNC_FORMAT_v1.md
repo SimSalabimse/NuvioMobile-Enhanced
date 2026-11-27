@@ -73,7 +73,7 @@ Writers translate those into the ids in this section. `outro` in the analysis fi
 | Detection | `det/{showId}/{episodeKey}/{segmentType}/{segmentIndex}/{durationMs}/a{algorithmVersion}` |
 | Submission | `submission/{accountScope}/{remoteId}` |
 | Alias | `alias/{from}` |
-| Print part | `print/{showId}/{segmentType}/{markId}/{part}` |
+| Print part | `print/{showId}/{episodeKey}/{segmentType}/{markId}/{part}` |
 
 UUID v4 is lowercase and matches `^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`. Space ids and blob ids use the same form.
 
@@ -228,7 +228,7 @@ One part of a show print. The bytes and the local file are specified in `docs/pr
   "episode": 1,
   "frames": "AQAAAAIAAAADAAAABAAAAA==",
   "hlc": { "wallMs": 1700000000000, "counter": 1, "deviceId": "device-a" },
-  "id": "print/tmdb:100/intro/intro/0",
+  "id": "print/tmdb:100/s1e1/intro/intro/0",
   "kind": "print",
   "markId": "intro",
   "originMs": 15000,
@@ -246,7 +246,7 @@ One part of a show print. The bytes and the local file are specified in `docs/pr
 
 `segmentType` is `intro`, `recap`, `credits`, or `preview`. The local analysis name `outro` is `credits` here. `markId` is that type, or that type plus `-` and an index from 2 to 99 (`intro-2`). `part` is 0 or greater and less than `parts`. `parts` is 1 to 99. `stepMs` is 100. `padMs` is 0 to 10000. `frames` is standard base64 of little-endian uint32 sub-fingerprints, 1 to 1200 frames. `startMs` and `endMs` are the mark, not the pad. `originMs` is the absolute time of frame 0. Season and episode are both null for a movie, or both integers as in section 2.
 
-The id is `print/` + show id + `/` + segment type + `/` + mark id + `/` + part. Show ids contain `:`, not `/`, so the id splits into five pieces.
+The id is `print/` + show id + `/` + episode key + `/` + segment type + `/` + mark id + `/` + part. The episode key is `movie` or `s` + season + `e` + episode, the same key as section 2. Two episodes of one show do not share an id. Show ids contain `:`, not `/`, so the id splits into six pieces.
 
 A print does not create a skip mark, does not turn analysis off, and is not a TheIntroDB submission. Nothing in this format submits a range.
 

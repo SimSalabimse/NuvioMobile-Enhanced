@@ -389,7 +389,7 @@ function parsePrint(value: Record<string, unknown>, hlc: Hlc): ParsedRecord | nu
   if (value.episode !== null && (typeof value.episode !== "number" || !safeInt(value.episode))) return null;
   if (located === null) return null;
   if (typeof value.frames !== "string" || !printFramesOk(value.frames)) return null;
-  const id = `print/${value.showId}/${value.segmentType}/${value.markId}/${part}`;
+  const id = `print/${value.showId}/${located}/${value.segmentType}/${value.markId}/${part}`;
   if (value.id !== id) return null;
   const record: LivePrint = {
     kind: "print",
@@ -476,11 +476,13 @@ function tombstoneIdOk(kind: Tombstone["kind"], id: string): boolean {
 
 function printIdOk(id: string): boolean {
   const parts = id.split("/");
-  if (parts.length !== 5 || parts[0] !== "print") return false;
-  const segment = parts[2] ?? "";
-  const mark = parts[3] ?? "";
-  const part = parts[4] ?? "";
-  return isShowId(parts[1] ?? "") && isSegment(segment) && MARK_ID.test(mark) && mark.startsWith(segment) &&
+  if (parts.length !== 6 || parts[0] !== "print") return false;
+  const episode = parts[2] ?? "";
+  const segment = parts[3] ?? "";
+  const mark = parts[4] ?? "";
+  const part = parts[5] ?? "";
+  return isShowId(parts[1] ?? "") && /^(movie|s[0-9]+e[1-9][0-9]*)$/.test(episode) &&
+    isSegment(segment) && MARK_ID.test(mark) && mark.startsWith(segment) &&
     /^[0-9]{1,2}$/.test(part) && Number(part) <= 98;
 }
 

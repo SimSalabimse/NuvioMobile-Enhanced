@@ -567,7 +567,7 @@ describe("worker protocol", () => {
 
   it("stores a print blob and returns the same plaintext", async () => {
     expect((await createSpace(space(12))).status).toBe(201);
-    const plaintext = "{\"algo\":\"nuvio-print-1\",\"deleted\":false,\"durationMs\":1800000,\"endMs\":30000,\"episode\":1,\"frames\":\"AQAAAAIAAAADAAAABAAAAA==\",\"hlc\":{\"counter\":1,\"deviceId\":\"device-a\",\"wallMs\":1700000000000},\"id\":\"print/tmdb:100/intro/intro/0\",\"kind\":\"print\",\"markId\":\"intro\",\"originMs\":15000,\"padMs\":5000,\"part\":0,\"parts\":1,\"season\":1,\"segmentType\":\"intro\",\"showId\":\"tmdb:100\",\"startMs\":20000,\"stepMs\":100,\"v\":1}";
+    const plaintext = "{\"algo\":\"nuvio-print-1\",\"deleted\":false,\"durationMs\":1800000,\"endMs\":30000,\"episode\":1,\"frames\":\"AQAAAAIAAAADAAAABAAAAA==\",\"hlc\":{\"counter\":1,\"deviceId\":\"device-a\",\"wallMs\":1700000000000},\"id\":\"print/tmdb:100/s1e1/intro/intro/0\",\"kind\":\"print\",\"markId\":\"intro\",\"originMs\":15000,\"padMs\":5000,\"part\":0,\"parts\":1,\"season\":1,\"segmentType\":\"intro\",\"showId\":\"tmdb:100\",\"startMs\":20000,\"stepMs\":100,\"v\":1}";
     const blobId = "55555555-5555-4555-8555-555555555555";
     const nonce = decodeB64(cryptoVector.nonceBase64);
     if (nonce === null) throw new Error("nonce");

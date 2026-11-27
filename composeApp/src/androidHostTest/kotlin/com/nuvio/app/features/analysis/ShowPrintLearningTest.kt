@@ -1,5 +1,8 @@
 package com.nuvio.app.features.analysis
 
+import com.nuvio.app.features.downloads.PlaybackPriority
+import com.nuvio.app.features.player.segmentTypesSyncedByAnalysis
+import com.nuvio.app.features.streams.epochMs
 import kotlin.random.Random
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -61,9 +64,208 @@ class ShowPrintLearningTest {
         assertEquals(0L, identicalEndError)
         assertEquals(0L, shiftedStartError)
         assertEquals(0L, shiftedEndError)
-        assertEquals(listOf("intro/intro"), identical.learnedRanges.map { it.printId })
+        assertEquals(listOf("s1e1/intro/intro"), identical.learnedRanges.map { it.printId })
         assertEquals(DETECTED_FROM_YOUR_MARKS, analysisRowLearnedLine(identical))
+        assertFalse(segmentTypesSyncedByAnalysis(identical).contains("intro"))
         assertNull(analysisRowLearnedLine(load(show, 1)))
+    }
+
+    @Test
+    fun aPrintDoesNotReplaceAnalysisAUserMarkOrASubmission() {
+        val show = "tmdb:106"
+        val duration = 1_800_000L
+        val track = audio(400, seed = 61)
+        save(show, 1, track, duration)
+        save(
+            show,
+            2,
+            track,
+            duration,
+            introStartMs = 1_000L,
+            introEndMs = 9_000L,
+            introConfidence = SegmentConfidence(agreeingSiblings = 3, avgBitErrors = 1.0),
+        )
+        save(
+            show,
+            3,
+            track,
+            duration,
+            userSegments = mapOf("intro" to UserSegment(2_000L, 22_000L, durationMs = duration)),
+        )
+        save(
+            show,
+            4,
+            track,
+            duration,
+            userSegments = mapOf("intro" to UserSegment(3_000L, 23_000L, imported = true, durationMs = duration)),
+        )
+        teachFromMark(show, 1, "intro", 5_000L, 15_000L, duration)
+        val analysed = load(show, 2)
+        assertEquals(1_000L, analysed.introStartMs)
+        assertEquals(9_000L, analysed.introEndMs)
+        assertEquals(3, analysed.introConfidence?.agreeingSiblings)
+        assertTrue(analysed.learnedRanges.isEmpty())
+        assertNull(analysisRowLearnedLine(analysed))
+        val marked = load(show, 3)
+        assertEquals(2_000L, marked.userSegments["intro"]?.startMs)
+        assertEquals(22_000L, marked.userSegments["intro"]?.endMs)
+        assertEquals(2_000L, marked.introStartMs)
+        assertEquals(22_000L, marked.introEndMs)
+        assertEquals(false, marked.userSegments["intro"]?.imported)
+        val submission = load(show, 4)
+        assertEquals(true, submission.userSegments["intro"]?.imported)
+        assertEquals(3_000L, submission.userSegments["intro"]?.startMs)
+        assertEquals(23_000L, submission.userSegments["intro"]?.endMs)
+        assertEquals(3_000L, submission.introStartMs)
+        assertEquals(23_000L, submission.introEndMs)
+        assertTrue(submission.learnedRanges.isEmpty())
+    }
+
+    @Test
+    fun silenceAPartialRecapAndADifferentTrackAreNotDetections() {
+        val show = "tmdb:107"
+        val duration = 1_800_000L
+        val silent = IntArray(400)
+        save(show, 1, silent, duration)
+        save(show, 2, silent, duration)
+        teachFromMark(show, 1, "intro", 5_000L, 15_000L, duration)
+        assertNull(load(show, 2).introStartMs)
+        assertTrue(load(show, 2).learnedRanges.isEmpty())
+        assertNull(analysisRowLearnedLine(load(show, 2)))
+
+        val recap = audio(400, seed = 71)
+        save(show, 3, recap, duration)
+        val bumper = recap.copyOf(40) + audio(360, seed = 72)
+        save(show, 4, bumper, duration)
+        teachFromMark(show, 3, "recap", 0L, 16_000L, duration)
+        assertNull(load(show, 4).recapStartMs)
+        assertTrue(load(show, 4).learnedRanges.none { it.type == "recap" })
+
+        val other = audio(400, seed = 73)
+        save(
+            show,
+            5,
+            other,
+            duration,
+            introStartMs = 4_000L,
+            introEndMs = 14_000L,
+            introConfidence = SegmentConfidence(agreeingSiblings = 2, avgBitErrors = 2.0),
+        )
+        val theme = audio(400, seed = 74)
+        save(show, 6, theme, duration)
+        teachFromMark(show, 6, "intro", 5_000L, 15_000L, duration)
+        assertEquals(4_000L, load(show, 5).introStartMs)
+        assertEquals(14_000L, load(show, 5).introEndMs)
+        assertNull(analysisRowLearnedLine(load(show, 5)))
+    }
+
+    @Test
+    fun aShorterEpisodeDoesNotKeepAClippedPrint() {
+        val show = "tmdb:108"
+        val source = audio(400, seed = 81)
+        save(show, 1, source, 40_000L)
+        save(show, 2, source.copyOf(120), 12_000L)
+        teachFromMark(show, 1, "intro", 5_000L, 15_000L, 40_000L)
+        assertNull(load(show, 2).introStartMs)
+        assertTrue(load(show, 2).learnedRanges.isEmpty())
+        assertNull(analysisRowLearnedLine(load(show, 2)))
+    }
+
+    @Test
+    fun matchingWaitsWhileVideoIsPlaying() {
+        val show = "tmdb:109"
+        val duration = 1_800_000L
+        val track = audio(400, seed = 91)
+        save(show, 1, track, duration)
+        save(show, 2, track, duration)
+        PlaybackPriority.sessionStarted(isLocalFile = true)
+        try {
+            PlaybackPriority.noteSnapshot(
+                wantsToPlay = true,
+                buffering = false,
+                positionMs = 1_000L,
+                nowMs = epochMs(),
+                pictureMoving = true,
+            )
+            assertTrue(PlaybackPriority.isWatching())
+            runBlocking {
+                SkipLearning.recordMark(show, 1, 1, "recap", 5_000L, 15_000L, duration)
+            }
+            assertNull(load(show, 2).recapStartMs)
+            assertTrue(load(show, 2).learnedRanges.isEmpty())
+            assertTrue(ShowPrints.exportWires(show, ShowPrintClock(1L, 0, "device-a")).isNotEmpty())
+        } finally {
+            PlaybackPriority.sessionEnded()
+        }
+        assertTrue(ShowPrints.teach(show, ShowPrintGate.Open) >= 1)
+        assertEquals(5_000L, load(show, 2).recapStartMs)
+        assertEquals(DETECTED_FROM_YOUR_MARKS, analysisRowLearnedLine(load(show, 2)))
+    }
+
+    @Test
+    fun cancellationLeavesTheEpisodeUnmatched() {
+        val show = "tmdb:110"
+        val duration = 1_800_000L
+        val track = audio(400, seed = 101)
+        save(show, 1, track, duration)
+        teachFromMark(show, 1, "intro", 5_000L, 15_000L, duration)
+        save(show, 2, track, duration)
+        assertEquals(0, ShowPrints.teach(show, ShowPrintGate.Open, shouldStop = { true }))
+        assertNull(load(show, 2).introStartMs)
+        assertTrue(load(show, 2).learnedRanges.isEmpty())
+        assertTrue(ShowPrints.exportWires(show, ShowPrintClock(1L, 0, "device-a")).isNotEmpty())
+    }
+
+    @Test
+    fun twoEpisodesKeepDistinctPrintsAndTheShowStaysBounded() {
+        val show = "tmdb:111"
+        val duration = 1_800_000L
+        val track = audio(400, seed = 111)
+        repeat(17) { index -> save(show, index + 1, track, duration) }
+        save(show, 18, track, duration)
+        repeat(17) { index -> teachFromMark(show, index + 1, "intro", 5_000L, 15_000L, duration) }
+        val wires = ShowPrints.exportWires(show, ShowPrintClock(1L, 0, "device-a"))
+        assertEquals(16, wires.size)
+        assertEquals(16, wires.map { it.id }.distinct().size)
+        assertTrue(wires.none { it.episode == 1 })
+        assertTrue(wires.any { it.episode == 17 && it.id.contains("/s1e17/") })
+        assertEquals(5_000L, load(show, 1).userSegments["intro"]?.startMs)
+        assertTrue(load(show, 18).learnedRanges.isNotEmpty())
+        assertTrue(SkipLearning.removeMark(show, 1, 17, "intro"))
+        assertEquals(5_000L, load(show, 2).userSegments["intro"]?.startMs)
+        assertTrue(load(show, 18).learnedRanges.none { it.printId == "s1e17/intro/intro" })
+        assertTrue(load(show, 18).learnedRanges.isNotEmpty())
+    }
+
+    @Test
+    fun reanalysisKeepsADetectorResultWhenThePrintMisses() {
+        val key = MediaAnalysisStore.keyFor("tmdb:112", 1, 1)
+        val previous = MediaAnalysisResult(
+            key = key,
+            analyzedAtMs = 1L,
+            durationMs = 1_800_000L,
+            introStartMs = 5_000L,
+            introEndMs = 15_000L,
+            learnedRanges = listOf(LearnedRange("intro", 5_000L, 15_000L, "s1e1/intro/intro")),
+        )
+        val carried = MediaAnalysisResult(key = key, analyzedAtMs = 2L, durationMs = previous.durationMs)
+            .carryingKnownSegments(previous)
+        assertEquals(5_000L, carried.introStartMs)
+        val open = carried.withoutPrintOwnedTimes()
+        assertNull(open.introStartMs)
+        val detected = open.copy(
+            introStartMs = 20_000L,
+            introEndMs = 30_000L,
+            introConfidence = SegmentConfidence(agreeingSiblings = 2, avgBitErrors = 1.0),
+        )
+        val restored = detected.restoringUnfilledPrintTimes(carried)
+        assertEquals(20_000L, restored.introStartMs)
+        assertEquals(30_000L, restored.introEndMs)
+        assertTrue(restored.learnedRanges.isEmpty())
+        assertNull(analysisRowLearnedLine(restored))
+        val missed = open.restoringUnfilledPrintTimes(carried)
+        assertEquals(5_000L, missed.introStartMs)
+        assertEquals(DETECTED_FROM_YOUR_MARKS, analysisRowLearnedLine(missed))
     }
 
     @Test
@@ -184,7 +386,7 @@ class ShowPrintLearningTest {
     fun theSamplePrintRecordIsCanonicalAndFitsThePlaintextCap() {
         assertEquals("AQAAAAIAAAADAAAABAAAAA==", encodeFingerprint(intArrayOf(1, 2, 3, 4)))
         val wire = ShowPrintWire(
-            id = "print/tmdb:100/intro/intro/0",
+            id = "print/tmdb:100/s1e1/intro/intro/0",
             showId = "tmdb:100",
             season = 1,
             episode = 1,
@@ -211,7 +413,16 @@ class ShowPrintLearningTest {
         assertTrue(mergeShowPrintWires(listOf(wire, tombstone)).isEmpty())
     }
 
-    private fun save(show: String, episode: Int, head: IntArray, durationMs: Long) {
+    private fun save(
+        show: String,
+        episode: Int,
+        head: IntArray,
+        durationMs: Long,
+        introStartMs: Long? = null,
+        introEndMs: Long? = null,
+        introConfidence: SegmentConfidence? = null,
+        userSegments: Map<String, UserSegment> = emptyMap(),
+    ) {
         val key = MediaAnalysisStore.keyFor(show, 1, episode)
         MediaAnalysisStore.save(
             MediaAnalysisResult(
@@ -220,8 +431,22 @@ class ShowPrintLearningTest {
                 durationMs = durationMs,
                 fingerprintStepMs = PRINT_STEP_MS,
                 headFingerprint = encodeFingerprint(head),
+                introStartMs = introStartMs,
+                introEndMs = introEndMs,
+                introConfidence = introConfidence,
+                userSegments = userSegments,
             ),
         )
+    }
+
+    /** Stores a mark and matches the show without the older season pass. */
+    private fun teachFromMark(show: String, episode: Int, type: String, startMs: Long, endMs: Long, durationMs: Long) {
+        val key = MediaAnalysisStore.keyFor(show, 1, episode)
+        val existing = load(show, episode)
+        MediaAnalysisStore.save(
+            existing.copy(userSegments = existing.userSegments + (type to UserSegment(startMs, endMs, durationMs = durationMs))),
+        )
+        ShowPrints.syncEpisode(show, key, reteach = true, gate = ShowPrintGate.Open)
     }
 
     private fun load(show: String, episode: Int): MediaAnalysisResult =
@@ -236,7 +461,7 @@ class ShowPrintLearningTest {
         const val SAMPLE_PRINT =
             "{\"algo\":\"nuvio-print-1\",\"deleted\":false,\"durationMs\":1800000,\"endMs\":30000,\"episode\":1," +
                 "\"frames\":\"AQAAAAIAAAADAAAABAAAAA==\",\"hlc\":{\"counter\":1,\"deviceId\":\"device-a\"," +
-                "\"wallMs\":1700000000000},\"id\":\"print/tmdb:100/intro/intro/0\",\"kind\":\"print\"," +
+                "\"wallMs\":1700000000000},\"id\":\"print/tmdb:100/s1e1/intro/intro/0\",\"kind\":\"print\"," +
                 "\"markId\":\"intro\",\"originMs\":15000,\"padMs\":5000,\"part\":0,\"parts\":1,\"season\":1," +
                 "\"segmentType\":\"intro\",\"showId\":\"tmdb:100\",\"startMs\":20000,\"stepMs\":100,\"v\":1}"
     }

@@ -24,6 +24,9 @@ internal const val MAX_PRINT_FRAMES_PER_PART = 1_200
 internal const val MAX_SYNC_PLAINTEXT_BYTES = 8_192
 internal const val MAX_LEARNED_RANGES_PER_TYPE = 3
 
+/** Stored prints of one segment type on one show. Older episodes are dropped first. Marks stay. */
+internal const val MAX_PRINTS_PER_TYPE = 16
+
 internal const val DETECTED_FROM_YOUR_MARKS = "Detected from your marks"
 
 private const val MIN_PRINT_MARK_MS = 8_000L
@@ -105,7 +108,8 @@ internal data class StoredShowPrint(
     val frames: String,
     val sourceKey: String,
 ) {
-    val printId: String get() = "$segmentType/$markId"
+    /** Unique per episode. Two episodes of one show both use the mark id `intro`. */
+    val printId: String get() = "${printEpisodeKey(season, episode)}/$segmentType/$markId"
 }
 
 @Serializable
@@ -169,18 +173,20 @@ internal object ShowPrints {
         episodeKey: String,
         reteach: Boolean,
         gate: ShowPrintGate,
+        shouldStop: () -> Boolean = { false },
     ): MediaAnalysisResult? {
         if (parentMetaId.isBlank()) return null
         val episode = MediaAnalysisStore.load(episodeKey) ?: return null
         val fresh = extractPrints(parentMetaId, episode)
         val previous = printsFor(parentMetaId).filter { it.sourceKey == episodeKey }
-        writeEpisodePrints(parentMetaId, episodeKey, fresh)
-        previous.filter { old ->
+        val dropped = writeEpisodePrints(parentMetaId, episodeKey, fresh)
+        val changed = previous.filter { old ->
             val next = fresh.find { it.printId == old.printId }
             next == null || next.frames != old.frames || next.startMs != old.startMs || next.endMs != old.endMs
-        }.forEach { retract(parentMetaId, it.printId) }
-        if (!reteach || showPrintGateBlocks(gate)) return MediaAnalysisStore.load(episodeKey)
-        teach(parentMetaId, gate)
+        }.map { it.printId } + dropped
+        changed.distinct().forEach { retract(parentMetaId, it) }
+        if (!reteach || showPrintGateBlocks(gate) || shouldStop()) return MediaAnalysisStore.load(episodeKey)
+        teach(parentMetaId, gate, shouldStop)
         return MediaAnalysisStore.load(episodeKey)
     }
 
@@ -189,29 +195,32 @@ internal object ShowPrints {
         parentMetaId: String,
         episode: MediaAnalysisResult,
         gate: ShowPrintGate,
+        shouldStop: () -> Boolean = { false },
     ): MediaAnalysisResult {
         if (parentMetaId.isBlank()) return episode
         val fresh = extractPrints(parentMetaId, episode)
         val previous = printsFor(parentMetaId).filter { it.sourceKey == episode.key }
-        writeEpisodePrints(parentMetaId, episode.key, fresh)
-        previous.filter { old ->
+        val dropped = writeEpisodePrints(parentMetaId, episode.key, fresh)
+        val changed = previous.filter { old ->
             val next = fresh.find { it.printId == old.printId }
             next == null || next.frames != old.frames || next.startMs != old.startMs || next.endMs != old.endMs
-        }.forEach { retract(parentMetaId, it.printId) }
-        if (showPrintGateBlocks(gate)) return episode
+        }.map { it.printId } + dropped
+        changed.distinct().forEach { retract(parentMetaId, it) }
+        if (showPrintGateBlocks(gate) || shouldStop()) return episode
         val prints = printsFor(parentMetaId)
         if (prints.isEmpty() && !SegmentGuess.ENABLED) return episode
-        teachOthers(parentMetaId, episode.key, prints)
-        return applyHits(episode, prints)
+        teachOthers(parentMetaId, episode.key, prints, shouldStop)
+        return applyHits(episode, prints, shouldStop) ?: episode
     }
 
-    fun teach(parentMetaId: String, gate: ShowPrintGate): Int {
-        if (parentMetaId.isBlank() || showPrintGateBlocks(gate)) return 0
+    fun teach(parentMetaId: String, gate: ShowPrintGate, shouldStop: () -> Boolean = { false }): Int {
+        if (parentMetaId.isBlank() || showPrintGateBlocks(gate) || shouldStop()) return 0
         val prints = printsFor(parentMetaId)
         if (prints.isEmpty() && !SegmentGuess.ENABLED) return 0
         var changed = 0
         for (episode in showEpisodes(parentMetaId)) {
-            val learned = applyHits(episode, prints)
+            if (shouldStop()) return changed
+            val learned = applyHits(episode, prints, shouldStop) ?: return changed
             if (learned == episode) continue
             val saved = MediaAnalysisStore.update(episode.key) { current ->
                 if (current == episode) learned else current
@@ -230,12 +239,13 @@ internal object ShowPrints {
         if (parentMetaId.isBlank()) return
         val incomingShow = syncShowId(parentMetaId) ?: return
         val joined = joinWires(parentMetaId, wires.filter { it.showId == incomingShow })
+        val (bounded, dropped) = boundPrints(joined)
         val previous = printsFor(parentMetaId).map { it.printId }.toSet()
         synchronized(catalogLock) {
-            saveCatalog(parentMetaId, ShowPrintCatalog(prints = joined))
+            saveCatalog(parentMetaId, ShowPrintCatalog(prints = bounded))
         }
-        val next = joined.map { it.printId }.toSet()
-        previous.filter { it !in next }.forEach { retract(parentMetaId, it) }
+        val next = bounded.map { it.printId }.toSet()
+        (previous.filter { it !in next } + dropped.map { it.printId }).distinct().forEach { retract(parentMetaId, it) }
     }
 
     fun clearPrintsForTests(parentMetaId: String) {
@@ -244,24 +254,34 @@ internal object ShowPrints {
         }
     }
 
-    private fun teachOthers(parentMetaId: String, exceptKey: String, prints: List<StoredShowPrint>) {
+    private fun teachOthers(
+        parentMetaId: String,
+        exceptKey: String,
+        prints: List<StoredShowPrint>,
+        shouldStop: () -> Boolean,
+    ) {
         for (episode in showEpisodes(parentMetaId)) {
+            if (shouldStop()) return
             if (episode.key == exceptKey) continue
-            val learned = applyHits(episode, prints)
+            val learned = applyHits(episode, prints, shouldStop) ?: return
             if (learned == episode) continue
             MediaAnalysisStore.update(episode.key) { current -> if (current == episode) learned else current }
         }
     }
 
-    private fun writeEpisodePrints(parentMetaId: String, episodeKey: String, fresh: List<StoredShowPrint>) {
-        synchronized(catalogLock) {
+    /** Prints removed because the show is over the per-type cap. The caller's marks are not touched. */
+    private fun writeEpisodePrints(parentMetaId: String, episodeKey: String, fresh: List<StoredShowPrint>): List<String> {
+        val dropped = synchronized(catalogLock) {
             val catalog = readCatalog(parentMetaId)
             val kept = catalog.prints.filter { it.sourceKey != episodeKey }
-            saveCatalog(parentMetaId, catalog.copy(prints = kept + fresh))
+            val (bounded, removed) = boundPrints(kept + fresh)
+            saveCatalog(parentMetaId, catalog.copy(prints = bounded))
+            removed.map { it.printId }
         }
         if (fresh.isNotEmpty()) {
             InAppLogger.info("ShowPrint", "stored ${fresh.size} print(s) key=$episodeKey")
         }
+        return dropped
     }
 
     private fun printsFor(parentMetaId: String): List<StoredShowPrint> =
@@ -372,15 +392,28 @@ private fun extractPrint(
     )
 }
 
-private fun applyHits(episode: MediaAnalysisResult, prints: List<StoredShowPrint>): MediaAnalysisResult {
+/** Null when matching was cancelled. The episode is left as it was. */
+private fun applyHits(
+    episode: MediaAnalysisResult,
+    prints: List<StoredShowPrint>,
+    shouldStop: () -> Boolean,
+): MediaAnalysisResult? {
     val guessed = SegmentGuess.rangesFor(episode)
-    val hits = chooseHits(episode, prints)
+    val hits = try {
+        chooseHits(episode, prints, shouldStop)
+    } catch (_: ReferenceStop) {
+        return null
+    }
     if (hits.isEmpty() && guessed.isEmpty() && episode.learnedRanges.isEmpty()) return episode
     return writeHits(episode, hits)
 }
 
-private fun chooseHits(episode: MediaAnalysisResult, prints: List<StoredShowPrint>): List<PrintHit> {
-    val found = prints.mapNotNull { matchPrint(it, episode) }
+private fun chooseHits(
+    episode: MediaAnalysisResult,
+    prints: List<StoredShowPrint>,
+    shouldStop: () -> Boolean,
+): List<PrintHit> {
+    val found = prints.mapNotNull { matchPrint(it, episode, shouldStop) }
     val sorted = found.sortedWith(
         compareByDescending<PrintHit> { it.overlapFrames }
             .thenBy { it.bitErrors }
@@ -399,12 +432,18 @@ private fun chooseHits(episode: MediaAnalysisResult, prints: List<StoredShowPrin
     return kept
 }
 
-private fun matchPrint(print: StoredShowPrint, episode: MediaAnalysisResult): PrintHit? {
+private fun matchPrint(
+    print: StoredShowPrint,
+    episode: MediaAnalysisResult,
+    shouldStop: () -> Boolean,
+): PrintHit? {
+    if (shouldStop()) throw ReferenceStop()
     if (print.sourceKey == episode.key) return null
     if (print.stepMs != episode.fingerprintStepMs) return null
     if (!sameCut(print.durationMs, episode.durationMs)) return null
     val type = print.segmentType
-    if (episode.userSegments.containsKey(type)) return null
+    if (episode.userSegments.containsKey(type) || type in episode.chapterTypes) return null
+    if (analysisOwns(episode, type)) return null
     val markLength = print.endMs - print.startMs
     if (markLength < MIN_PRINT_MARK_MS || !lengthAllowed(type, print.startMs, print.endMs)) return null
     val head = type == "intro" || type == "recap"
@@ -416,17 +455,26 @@ private fun matchPrint(print: StoredShowPrint, episode: MediaAnalysisResult): Pr
     val markEndFrame = ((print.endMs - print.originMs) / step).toInt()
     val markFrames = markEndFrame - markStartFrame
     if (markStartFrame < 0 || markEndFrame > printFrames.size || markFrames < (MIN_PRINT_MARK_MS / step).toInt()) return null
-    val needed = max((MIN_PRINT_MARK_MS / step).toInt(), markFrames / 2)
-    val segment = FingerprintMatcher.longestSharedSegment(printFrames, targetFrames, minFrames = needed) ?: return null
+    if (!markIsDistinctive(printFrames, markStartFrame, markEndFrame)) return null
+    // The shared run has to cover the mark itself. A bumper or a quiet stretch is not the segment.
+    val needed = markFrames
+    val segment = FingerprintMatcher.longestSharedSegment(
+        printFrames,
+        targetFrames,
+        minFrames = needed,
+        shouldStop = shouldStop,
+    ) ?: return null
     val overlap = min(markEndFrame, segment.endA) - max(markStartFrame, segment.startA)
     if (overlap < needed) return null
     val align = segment.startB - segment.startA
     val targetOffset = if (head) 0L else episode.tailStartMs
-    var start = targetOffset + (markStartFrame + align) * step
+    val start = targetOffset + (markStartFrame + align) * step
     var end = targetOffset + (markEndFrame + align) * step
-    if (start < 0L || end <= start) return null
-    if (episode.durationMs > 0L && end > episode.durationMs) end = episode.durationMs
-    if (type == "outro" && episode.durationMs > 0L && episode.durationMs - end < CREDITS_END_SNAP_MS) {
+    if (start < targetOffset || end <= start) return null
+    val capturedEnd = targetOffset + targetFrames.size * step
+    if (end > capturedEnd) return null
+    if (episode.durationMs > 0L && end > episode.durationMs) return null
+    if (type == "outro" && episode.durationMs > 0L && episode.durationMs - end in 1L until CREDITS_END_SNAP_MS) {
         end = episode.durationMs
     }
     if (!lengthAllowed(type, start, end)) return null
@@ -453,9 +501,7 @@ private fun writeHits(episode: MediaAnalysisResult, hits: List<PrintHit>): Media
             next = next.withPrimary(type, best.startMs, best.endMs)
             continue
         }
-        val gone = episode.learnedRanges.filter { it.type == type }
-        val primary = primaryRange(next, type)
-        if (primary != null && gone.any { abs(it.startMs - primary.first) <= SEGMENT_AGREE_MS }) {
+        if (type !in episode.userSegments && type !in episode.chapterTypes && printWrotePrimary(episode, type)) {
             next = next.withPrimary(type, null, null)
         }
     }
@@ -478,6 +524,8 @@ private fun withoutPrint(episode: MediaAnalysisResult, printId: String): MediaAn
     for (range in removed) {
         if (next.learnedRanges.any { it.type == range.type }) continue
         if (range.type in next.chapterTypes || next.userSegments.containsKey(range.type)) continue
+        if (range.type == "intro" && next.introConfidence != null) continue
+        if (range.type == "outro" && next.creditsConfidence != null) continue
         val primary = primaryRange(next, range.type) ?: continue
         if (abs(primary.first - range.startMs) > SEGMENT_AGREE_MS) continue
         next = next.withPrimary(range.type, null, null)
@@ -502,6 +550,106 @@ private fun MediaAnalysisResult.withPrimary(type: String, startMs: Long?, endMs:
         else -> this
     }
 }
+
+/**
+ * A stored time the print must not replace: a user mark, a chapter, a scored detector range,
+ * or a recap/preview that analysis already stored.
+ * Intro and credits with no confidence score are mark-derived (season learning or a print).
+ * A print may record those, so deleting the mark can take the detection with it.
+ */
+private fun analysisOwns(episode: MediaAnalysisResult, type: String): Boolean {
+    if (type in episode.userSegments || type in episode.chapterTypes) return true
+    if (primaryRange(episode, type) == null) return false
+    if (printWrotePrimary(episode, type)) return false
+    return when (type) {
+        "intro" -> episode.introConfidence != null
+        "outro" -> episode.creditsConfidence != null
+        else -> true
+    }
+}
+
+/** True when the stored time is the one a print wrote, so a later pass may move or clear it. */
+private fun printWrotePrimary(episode: MediaAnalysisResult, type: String): Boolean {
+    val primary = primaryRange(episode, type) ?: return false
+    val near = episode.learnedRanges.any { it.type == type && abs(it.startMs - primary.first) <= SEGMENT_AGREE_MS }
+    if (!near) return false
+    return when (type) {
+        "intro" -> episode.introConfidence == null
+        "outro" -> episode.creditsConfidence == null
+        else -> true
+    }
+}
+
+/**
+ * Drops print-written times so the detector can run. A user mark, a chapter, and a scored
+ * analysis range stay. [restoringUnfilledPrintTimes] puts a print back when detection finds nothing.
+ */
+internal fun MediaAnalysisResult.withoutPrintOwnedTimes(): MediaAnalysisResult {
+    if (learnedRanges.isEmpty()) return this
+    val types = learnedRanges.map { it.type }.toSet()
+    var next = copy(learnedTypes = learnedTypes - types, learnedRanges = emptyList())
+    for (type in types) {
+        if (!printWrotePrimary(this, type)) continue
+        if (type in userSegments || type in chapterTypes) continue
+        next = next.withPrimary(type, null, null)
+    }
+    return next
+}
+
+/** Puts a print time back for a type detection and chapters left empty. */
+internal fun MediaAnalysisResult.restoringUnfilledPrintTimes(previous: MediaAnalysisResult?): MediaAnalysisResult {
+    if (previous == null || previous.key != key) return this
+    if (previous.fileName != null && fileName != null && previous.fileName != fileName) return this
+    var next = this
+    val restored = ArrayList<LearnedRange>()
+    for (range in previous.learnedRanges) {
+        if (range.type in next.userSegments || range.type in next.chapterTypes) continue
+        if (primaryRange(next, range.type) != null) continue
+        val old = primaryRange(previous, range.type) ?: continue
+        if (abs(old.first - range.startMs) > SEGMENT_AGREE_MS) continue
+        if (!printWrotePrimary(previous, range.type)) continue
+        next = next.withPrimary(range.type, old.first, old.second)
+        restored += range
+    }
+    if (restored.isEmpty() && learnedRanges == previous.learnedRanges) return next
+    val kept = learnedRanges.filter { current -> restored.none { it.type == current.type } } + restored
+    return next.copy(
+        learnedRanges = kept,
+        learnedTypes = learnedTypes + restored.map { it.type },
+    )
+}
+
+/** Silence and a held tone share one fingerprint. That is not an intro, recap, credits, or preview. */
+private fun markIsDistinctive(frames: IntArray, from: Int, until: Int): Boolean {
+    if (until - from < 2 || from < 0 || until > frames.size) return false
+    val first = frames[from]
+    for (index in (from + 1) until until) {
+        if ((frames[index] xor first).countOneBits() > 6) return true
+    }
+    return false
+}
+
+private fun boundPrints(prints: List<StoredShowPrint>): Pair<List<StoredShowPrint>, List<StoredShowPrint>> {
+    val kept = ArrayList<StoredShowPrint>(prints.size)
+    val dropped = ArrayList<StoredShowPrint>()
+    for (group in prints.groupBy { it.segmentType }.values) {
+        if (group.size <= MAX_PRINTS_PER_TYPE) {
+            kept += group
+            continue
+        }
+        val ranked = group.sortedWith(
+            compareByDescending<StoredShowPrint> { it.season ?: -1 }
+                .thenByDescending { it.episode ?: -1 }
+                .thenBy { it.markId },
+        )
+        kept += ranked.take(MAX_PRINTS_PER_TYPE)
+        dropped += ranked.drop(MAX_PRINTS_PER_TYPE)
+    }
+    return kept to dropped
+}
+
+internal fun printEpisodeKey(season: Int?, episode: Int?): String =
+    if (season != null && episode != null) "s${season}e${episode}" else "movie"
 
 private fun primaryRange(episode: MediaAnalysisResult, type: String): Pair<Long, Long>? = when (type) {
     "intro" -> pairOrNull(episode.introStartMs, episode.introEndMs)
@@ -533,7 +681,7 @@ private fun episodeNumber(key: String): Int? =
     Regex("""__s(\d+)e(\d+)$""").find(key)?.groupValues?.get(2)?.toInt()
 
 private fun joinWires(parentMetaId: String, wires: List<ShowPrintWire>): List<StoredShowPrint> {
-    val groups = wires.groupBy { "${it.showId}/${it.segmentType}/${it.markId}" }
+    val groups = wires.groupBy { "${it.showId}/${it.season}/${it.episode}/${it.segmentType}/${it.markId}" }
     val out = ArrayList<StoredShowPrint>(groups.size)
     for (group in groups.values) {
         val first = group.first()

@@ -87,8 +87,14 @@ internal fun localSegmentType(wire: String): String? = when (wire) {
     else -> null
 }
 
-internal fun printRecordId(showId: String, segmentType: String, markId: String, part: Int): String =
-    "print/$showId/$segmentType/$markId/$part"
+internal fun printRecordId(
+    showId: String,
+    season: Int?,
+    episode: Int?,
+    segmentType: String,
+    markId: String,
+    part: Int,
+): String = "print/$showId/${printEpisodeKey(season, episode)}/$segmentType/$markId/$part"
 
 internal fun chunkPrintFrames(frames: IntArray, partSize: Int = MAX_PRINT_FRAMES_PER_PART): List<IntArray> {
     if (frames.isEmpty() || partSize <= 0) return emptyList()
@@ -108,10 +114,10 @@ internal fun StoredShowPrint.toWireParts(clock: ShowPrintClock): List<ShowPrintW
     val frames = decodeFingerprint(this.frames)
     val chunks = chunkPrintFrames(frames)
     if (chunks.isEmpty() || chunks.size > 99) return emptyList()
-    return chunks.mapIndexed { part, chunk ->
+    val wires = chunks.mapIndexed { part, chunk ->
         val encoded = encodeFingerprint(chunk)
         ShowPrintWire(
-            id = printRecordId(showId, segment, markId, part),
+            id = printRecordId(showId, season, episode, segment, markId, part),
             showId = showId,
             season = season,
             episode = episode,
@@ -130,7 +136,9 @@ internal fun StoredShowPrint.toWireParts(clock: ShowPrintClock): List<ShowPrintW
             counter = clock.counter,
             deviceId = clock.deviceId,
         )
-    }.filter { canonicalJson(it.toJsonMap()).encodeToByteArray().size <= MAX_SYNC_PLAINTEXT_BYTES }
+    }
+    if (wires.any { it.canonical().encodeToByteArray().size > MAX_SYNC_PLAINTEXT_BYTES }) return emptyList()
+    return wires
 }
 
 internal fun ShowPrintWire.toJsonMap(): Map<String, Any?> {
@@ -253,7 +261,7 @@ internal fun parseShowPrintObject(root: JsonObject): ShowPrintWire? {
     val decoded = decodeFingerprint(frames)
     if (decoded.isEmpty() || decoded.size > MAX_PRINT_FRAMES_PER_PART) return null
     if (encodeFingerprint(decoded) != frames) return null
-    val expected = printRecordId(showId, segmentType, markId, part)
+    val expected = printRecordId(showId, season, episode, segmentType, markId, part)
     if (id != expected) return null
     return ShowPrintWire(
         id = id,
@@ -349,5 +357,5 @@ private fun JsonObject.optionalInt(key: String): OptionalInt {
 private val DEVICE_ID = Regex("""^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$""")
 private val MARK_ID = Regex("""^(intro|recap|credits|preview)(-[1-9][0-9]?)?$""")
 private val PRINT_ID = Regex(
-    """^print/(tmdb:[1-9][0-9]{0,9}|imdb:tt[0-9]{7,10}|raw:[A-Za-z0-9._-]{1,128})/(intro|recap|credits|preview)/(intro|recap|credits|preview)(-[1-9][0-9]?)?/[0-9]{1,2}$""",
+    """^print/(tmdb:[1-9][0-9]{0,9}|imdb:tt[0-9]{7,10}|raw:[A-Za-z0-9._-]{1,128})/(movie|s[0-9]+e[1-9][0-9]*)/(intro|recap|credits|preview)/(intro|recap|credits|preview)(-[1-9][0-9]?)?/[0-9]{1,2}$""",
 )

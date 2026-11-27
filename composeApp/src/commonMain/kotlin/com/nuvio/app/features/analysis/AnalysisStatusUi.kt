@@ -255,10 +255,12 @@ fun AnalysisStatusRow(item: DownloadItem) {
                 analysisRowLearnedLine(MediaAnalysisStore.load(key))
             }
             if (learned != null) {
+                val learnedText = stringResource(Res.string.analysis_detected_from_marks)
                 Text(
-                    text = stringResource(Res.string.analysis_detected_from_marks),
+                    text = learnedText,
                     style = MaterialTheme.typography.labelSmall,
                     color = muted,
+                    modifier = Modifier.clearAndSetSemantics { contentDescription = learnedText },
                 )
             }
         }
